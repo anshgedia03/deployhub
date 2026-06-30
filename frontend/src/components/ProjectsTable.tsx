@@ -5,6 +5,7 @@ import { formatDistanceToNow } from "date-fns";
 import { io } from "socket.io-client";
 import { ExternalLink, Play, Square, Trash2, MoreHorizontal, Server } from "lucide-react";
 import { toast } from "sonner";
+import { getApiUrl, getSocketUrl } from "@/config/api";
 import {
   Table,
   TableBody,
