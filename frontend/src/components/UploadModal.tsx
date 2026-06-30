@@ -157,7 +157,6 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
                   setProjectName(e.target.value);
                   validateProjectName(e.target.value);
                 }}
-                disabled={uploadStatus === "uploading"}
                 className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-md text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-zinc-700 transition-colors"
               />
               {nameError && (
@@ -220,11 +219,11 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
         </div>
 
         <div className="flex justify-end gap-3">
-          <Button variant="ghost" onClick={onClose} disabled={uploadStatus === "uploading"}>
+          <Button variant="ghost" onClick={() => onClose()} disabled={uploadStatus === "uploading"}>
             Cancel
           </Button>
           {uploadStatus === "success" ? (
-            <Button onClick={onClose} className="bg-blue-600 hover:bg-blue-700 text-white">
+            <Button onClick={() => onClose()} className="bg-blue-600 hover:bg-blue-700 text-white">
               Done
             </Button>
           ) : (

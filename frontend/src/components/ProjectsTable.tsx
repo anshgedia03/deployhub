@@ -217,7 +217,7 @@ export function ProjectsTable() {
                     <DropdownMenuItem 
                       className="hover:bg-zinc-800 hover:text-zinc-100 cursor-pointer"
                       onClick={() => handleAction('open', deployment.deploymentId)}
-                      disabled={deployment.status !== 'RUNNING' && deployment.status !== 'running'}
+                      disabled={deployment.status !== 'running'}
                     >
                       <ExternalLink className="mr-2 h-4 w-4" />
                       <span>Open</span>
@@ -225,7 +225,7 @@ export function ProjectsTable() {
                     <DropdownMenuItem 
                       className="hover:bg-zinc-800 hover:text-zinc-100 cursor-pointer"
                       onClick={() => handleAction('stop', deployment.deploymentId)}
-                      disabled={deployment.status !== 'RUNNING' && deployment.status !== 'running'}
+                      disabled={deployment.status !== 'running'}
                     >
                       <Square className="mr-2 h-4 w-4 text-amber-400" />
                       <span>Stop</span>
@@ -233,7 +233,7 @@ export function ProjectsTable() {
                     <DropdownMenuItem 
                       className="hover:bg-zinc-800 hover:text-zinc-100 cursor-pointer"
                       onClick={() => handleAction('start', deployment.deploymentId)}
-                      disabled={deployment.status === 'RUNNING' || deployment.status === 'running' || deployment.status === 'BUILDING' || deployment.status === 'building'}
+                      disabled={deployment.status === 'running' || deployment.status === 'building'}
                     >
                       <Play className="mr-2 h-4 w-4 text-emerald-400" />
                       <span>Start</span>
