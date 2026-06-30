@@ -1,0 +1,33 @@
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Copy root package.json and workspace configuration
+COPY package.json package-lock.json ./
+COPY backend/package.json backend/
+COPY shared/package.json shared/
+
+# Install dependencies for all workspaces
+RUN npm ci
+
+# Copy source code
+COPY shared/ shared/
+COPY backend/ backend/
+
+# Build shared and backend
+RUN npm run build --workspace=shared
+RUN npm run build --workspace=backend
+
+FROM node:20-alpine
+
+WORKDIR /app
+
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/backend/dist ./backend/dist
+COPY --from=builder /app/shared/dist ./shared/dist
+COPY backend/package.json ./backend/
+COPY package.json ./
+
+ENV NODE_ENV=production
+
+CMD ["npm", "start", "--workspace=backend"]
