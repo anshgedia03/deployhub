@@ -6,6 +6,7 @@ import { FitAddon } from "xterm-addon-fit";
 import "xterm/css/xterm.css";
 import { io, Socket } from "socket.io-client";
 import { Maximize2, Minimize2, X } from "lucide-react";
+import { getApiUrl, getSocketUrl } from "@/config/api";
 
 interface TerminalProps {
   deploymentId: string;
@@ -53,8 +54,7 @@ export function Terminal({ deploymentId, onClose }: TerminalProps) {
     window.addEventListener("resize", handleResize);
 
     // Initialize Socket.io
-    // Assumes backend is running on port 4000
-    const socket = io("http://localhost:4000");
+    const socket = io(getSocketUrl());
     socketRef.current = socket;
 
     socket.on("connect", () => {
@@ -67,7 +67,7 @@ export function Terminal({ deploymentId, onClose }: TerminalProps) {
           let hasMore = true;
 
           while (hasMore) {
-            const res = await fetch(`http://localhost:4000/projects/${deploymentId}/logs?cursor=${cursor}&limit=100000`);
+            const res = await fetch(getApiUrl(`/projects/${deploymentId}/logs?cursor=${cursor}&limit=100000`));
             if (!res.ok) break;
             
             const data = await res.json();

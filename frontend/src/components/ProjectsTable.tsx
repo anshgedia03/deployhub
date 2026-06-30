@@ -37,7 +37,7 @@ export function ProjectsTable() {
 
   const fetchDeployments = async () => {
     try {
-      const res = await fetch("http://localhost:4000/projects");
+      const res = await fetch(getApiUrl("/projects"));
       if (res.ok) {
         const data = await res.json();
         setDeployments(data);
@@ -56,7 +56,7 @@ export function ProjectsTable() {
     const interval = setInterval(fetchDeployments, 15000);
 
     // Setup socket to listen for status changes
-    const socket = io("http://localhost:4000");
+    const socket = io(getSocketUrl());
     socket.on("project:status_changed", (data: { deploymentId: string, status: string }) => {
       setDeployments(prev => {
         const existing = prev.find(d => d.deploymentId === data.deploymentId);
@@ -75,21 +75,11 @@ export function ProjectsTable() {
           toast.success(`Project deleted successfully.`);
         }
 
-        if (existing) {
-          if (data.status === 'DELETED') {
-            return prev.filter(dep => dep.deploymentId !== data.deploymentId);
-          }
-          return prev.map(dep => 
-            dep.deploymentId === data.deploymentId 
-              ? { ...dep, status: data.status as any } 
-              : dep
-          );
-        } else {
-          if (data.status !== 'DELETED') {
-            fetchDeployments();
-          }
-          return prev;
-        }
+        return prev.map(d => 
+          d.deploymentId === data.deploymentId 
+            ? { ...d, status: data.status.toLowerCase() as any } 
+            : d
+        );
       });
     });
 
@@ -101,22 +91,15 @@ export function ProjectsTable() {
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case "UPLOADING":
-        return <Badge className="bg-purple-500/10 text-purple-500 hover:bg-purple-500/20 border-purple-500/20 animate-pulse">Uploading</Badge>;
-      case "EXTRACTING":
-        return <Badge className="bg-orange-500/10 text-orange-500 hover:bg-orange-500/20 border-orange-500/20 animate-pulse">Extracting</Badge>;
-      case "VALIDATING":
-        return <Badge className="bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20 border-yellow-500/20 animate-pulse">Validating</Badge>;
+      case "building":
       case "BUILDING":
-        return <Badge className="bg-blue-500/10 text-blue-500 hover:bg-blue-500/20 border-blue-500/20 animate-pulse">Building</Badge>;
-      case "STARTING":
-        return <Badge className="bg-cyan-500/10 text-cyan-500 hover:bg-cyan-500/20 border-cyan-500/20 animate-pulse">Starting</Badge>;
-      case "RUNNING":
+        return <Badge className="bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 border-blue-500/20">Building</Badge>;
       case "running":
-        return <Badge className="bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 border-emerald-500/20">Running</Badge>;
-      case "FAILED":
+      case "RUNNING":
+        return <Badge className="bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border-emerald-500/20">Running</Badge>;
       case "failed":
-        return <Badge className="bg-red-500/10 text-red-500 hover:bg-red-500/20 border-red-500/20">Failed</Badge>;
+      case "FAILED":
+        return <Badge className="bg-red-500/10 text-red-400 hover:bg-red-500/20 border-red-500/20">Failed</Badge>;
       case "STOPPED":
       case "stopped":
         return <Badge className="bg-zinc-500/10 text-zinc-400 hover:bg-zinc-500/20 border-zinc-500/20">Stopped</Badge>;
@@ -128,14 +111,14 @@ export function ProjectsTable() {
   const handleAction = async (action: string, id: string) => {
     try {
       if (action === 'delete') {
-        const res = await fetch(`http://localhost:4000/projects/${id}`, { method: 'DELETE' });
+        const res = await fetch(getApiUrl(`/projects/${id}`), { method: 'DELETE' });
         if (res.ok) {
           toast.success('Deletion request sent.');
         } else {
           toast.error('Failed to trigger deletion.');
         }
       } else if (action === 'start' || action === 'stop') {
-        const res = await fetch(`http://localhost:4000/projects/${id}/${action}`, { method: 'POST' });
+        const res = await fetch(getApiUrl(`/projects/${id}/${action}`), { method: 'POST' });
         if (res.ok) {
           toast.success(`Request to ${action} container sent.`);
         } else {
@@ -144,7 +127,7 @@ export function ProjectsTable() {
       } else if (action === 'open') {
         const deployment = deployments.find(d => d.deploymentId === id);
         if (deployment) {
-          window.open(`http://localhost/${deployment.projectName || deployment.deploymentId}/`, '_blank');
+          window.open(`http://${window.location.hostname}/${deployment.projectName || deployment.deploymentId}/`, '_blank');
         }
       }
     } catch (err) {

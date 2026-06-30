@@ -13,6 +13,7 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { getApiUrl } from "@/config/api";
 
 interface UploadModalProps {
   isOpen: boolean;
@@ -77,7 +78,7 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
     try {
       // Create a local XHR request to track progress
       const xhr = new XMLHttpRequest();
-      xhr.open("POST", "http://localhost:4000/deploy", true);
+      xhr.open("POST", getApiUrl("/deploy"), true);
 
       xhr.upload.onprogress = (event) => {
         if (event.lengthComputable) {
