@@ -5,7 +5,11 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM nginx:alpine
-COPY --from=builder /app/dist /usr/share/nginx/html
-EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
+FROM node:20-alpine
+WORKDIR /app
+# Install the 'serve' package globally
+RUN npm install -g serve
+COPY --from=builder /app/dist ./dist
+EXPOSE 3000
+# The -s flag tells serve to route all unknown requests to index.html
+CMD ["serve", "-s", "dist", "-l", "3000"]
