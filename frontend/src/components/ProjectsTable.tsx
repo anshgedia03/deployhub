@@ -128,7 +128,11 @@ export function ProjectsTable() {
       } else if (action === 'open') {
         const deployment = deployments.find(d => d.deploymentId === id);
         if (deployment) {
-          window.open(`http://${window.location.hostname}/${deployment.projectName || deployment.deploymentId}/`, '_blank');
+          if (deployment.publicUrl) {
+            window.open(deployment.publicUrl, '_blank');
+          } else {
+            window.open(`http://${window.location.hostname}/${deployment.projectName || deployment.deploymentId}/`, '_blank');
+          }
         }
       }
     } catch (err) {

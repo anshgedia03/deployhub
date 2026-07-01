@@ -10,6 +10,7 @@ const envSchema = z.object({
   REDIS_HOST: z.string().default('localhost'),
   REDIS_PORT: z.coerce.number().default(6379),
   MONGODB_URI: z.string().default('mongodb://localhost:27017/deployx'),
+  PUBLIC_HOST: z.string().default('http://52.66.235.124'),
 });
 
 export const env = envSchema.parse(process.env);
