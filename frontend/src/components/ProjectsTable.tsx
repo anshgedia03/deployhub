@@ -171,74 +171,79 @@ export function ProjectsTable() {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {deployments.map((deployment) => (
-            <TableRow key={deployment._id} className="border-zinc-800 hover:bg-zinc-900/50 transition-colors">
-              <TableCell className="font-medium text-zinc-200">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded bg-zinc-800 flex items-center justify-center text-xs font-bold text-zinc-400">
-                    {(deployment.projectName || deployment.deploymentId).substring(0, 2).toUpperCase()}
+          {deployments.map((deployment) => {
+            const isRunning = deployment.status.toLowerCase() === 'running';
+            const isBuilding = deployment.status.toLowerCase() === 'building';
+
+            return (
+              <TableRow key={deployment.deploymentId} className="border-zinc-800/80 hover:bg-zinc-900/30">
+                <TableCell className="font-medium text-zinc-100">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-zinc-800/50 text-zinc-400 rounded-md">
+                      <Server className="h-4 w-4" />
+                    </div>
+                    <span className="truncate max-w-[150px]" title={deployment.projectName || deployment.deploymentId}>
+                      {deployment.projectName || deployment.deploymentId.split('-')[0]}
+                    </span>
                   </div>
-                  <span className="truncate max-w-[150px]" title={deployment.projectName || deployment.deploymentId}>
-                    {deployment.projectName || deployment.deploymentId.split('-')[0]}
-                  </span>
-                </div>
-              </TableCell>
-              <TableCell>{getStatusBadge(deployment.status)}</TableCell>
-              <TableCell className="text-zinc-400 font-mono text-sm">
-                {deployment.port ? (
-                  <span className="flex items-center gap-1">
-                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
-                    {deployment.port}
-                  </span>
-                ) : (
-                  <span className="text-zinc-600">-</span>
-                )}
-              </TableCell>
-              <TableCell className="text-zinc-500 text-sm">
-                {formatDistanceToNow(new Date(deployment.createdAt), { addSuffix: true })}
-              </TableCell>
-              <TableCell className="text-right">
-                <DropdownMenu>
-                  <DropdownMenuTrigger className="h-8 w-8 inline-flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 focus:outline-none transition-colors cursor-pointer">
-                    <MoreHorizontal className="h-4 w-4" />
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="bg-zinc-900 border-zinc-800 text-zinc-300">
-                    <DropdownMenuItem 
-                      className="hover:bg-zinc-800 hover:text-zinc-100 cursor-pointer"
-                      onClick={() => handleAction('open', deployment.deploymentId)}
-                      disabled={deployment.status !== 'running'}
-                    >
-                      <ExternalLink className="mr-2 h-4 w-4" />
-                      <span>Open</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem 
-                      className="hover:bg-zinc-800 hover:text-zinc-100 cursor-pointer"
-                      onClick={() => handleAction('stop', deployment.deploymentId)}
-                      disabled={deployment.status !== 'running'}
-                    >
-                      <Square className="mr-2 h-4 w-4 text-amber-400" />
-                      <span>Stop</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem 
-                      className="hover:bg-zinc-800 hover:text-zinc-100 cursor-pointer"
-                      onClick={() => handleAction('start', deployment.deploymentId)}
-                      disabled={deployment.status === 'running' || deployment.status === 'building'}
-                    >
-                      <Play className="mr-2 h-4 w-4 text-emerald-400" />
-                      <span>Start</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem 
-                      className="hover:bg-red-500/10 text-red-500 cursor-pointer focus:bg-red-500/20 focus:text-red-500"
-                      onClick={() => handleAction('delete', deployment.deploymentId)}
-                    >
-                      <Trash2 className="mr-2 h-4 w-4" />
-                      <span>Delete</span>
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </TableCell>
-            </TableRow>
-          ))}
+                </TableCell>
+                <TableCell>{getStatusBadge(deployment.status)}</TableCell>
+                <TableCell className="text-zinc-400 font-mono text-sm">
+                  {deployment.port ? (
+                    <span className="flex items-center gap-1">
+                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
+                      {deployment.port}
+                    </span>
+                  ) : (
+                    <span className="text-zinc-600">-</span>
+                  )}
+                </TableCell>
+                <TableCell className="text-zinc-500 text-sm">
+                  {formatDistanceToNow(new Date(deployment.createdAt), { addSuffix: true })}
+                </TableCell>
+                <TableCell className="text-right">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger className="h-8 w-8 inline-flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 focus:outline-none transition-colors cursor-pointer">
+                      <MoreHorizontal className="h-4 w-4" />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="bg-zinc-900 border-zinc-800 text-zinc-300">
+                      <DropdownMenuItem 
+                        className="hover:bg-zinc-800 hover:text-zinc-100 cursor-pointer"
+                        onClick={() => handleAction('open', deployment.deploymentId)}
+                        disabled={!isRunning}
+                      >
+                        <ExternalLink className="mr-2 h-4 w-4" />
+                        <span>Open</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem 
+                        className="hover:bg-zinc-800 hover:text-zinc-100 cursor-pointer"
+                        onClick={() => handleAction('stop', deployment.deploymentId)}
+                        disabled={!isRunning}
+                      >
+                        <Square className="mr-2 h-4 w-4 text-amber-400" />
+                        <span>Stop</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem 
+                        className="hover:bg-zinc-800 hover:text-zinc-100 cursor-pointer"
+                        onClick={() => handleAction('start', deployment.deploymentId)}
+                        disabled={isRunning || isBuilding}
+                      >
+                        <Play className="mr-2 h-4 w-4 text-emerald-400" />
+                        <span>Start</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem 
+                        className="hover:bg-red-500/10 text-red-500 cursor-pointer focus:bg-red-500/20 focus:text-red-500"
+                        onClick={() => handleAction('delete', deployment.deploymentId)}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        <span>Delete</span>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </TableCell>
+              </TableRow>
+            );
+          })}
         </TableBody>
       </Table>
     </div>
