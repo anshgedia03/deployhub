@@ -63,7 +63,11 @@ server {
       AttachStderr: true,
     });
     
+    let testOutput = '';
     const testStream = await testExec.start({});
+    testStream.on('data', (chunk) => {
+      testOutput += chunk.toString();
+    });
     
     const testCode = await new Promise<number>((resolve) => {
       // Check exit code periodically or listen to stream end.
@@ -81,7 +85,9 @@ server {
     if (testCode !== 0) {
       // Invalid configuration, rollback
       await fs.unlink(confPath);
-      throw new Error('Nginx configuration validation failed. Rolled back.');
+      // Clean up control characters that Docker multiplexing adds
+      const cleanOutput = testOutput.replace(/[\u0000-\u001F\u007F-\u009F]/g, '');
+      throw new Error(`Nginx configuration validation failed:\n${cleanOutput}\nRolled back.`);
     }
 
     // Reload Nginx
