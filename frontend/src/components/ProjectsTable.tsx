@@ -29,6 +29,7 @@ interface Deployment {
   projectName: string;
   status: "building" | "running" | "failed" | "stopped";
   port?: number;
+  publicUrl?: string;
   createdAt: string;
 }
 
