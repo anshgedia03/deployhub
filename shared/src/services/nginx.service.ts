@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import Docker from 'dockerode';
+import { env } from '../config/env';
 
 const docker = new Docker();
 const NGINX_CONTAINER_NAME = 'deployhub-nginx';
@@ -15,7 +16,7 @@ const CONF_DIR = path.resolve(__dirname, '../../../nginx/conf.d');
 export const configureNginx = async (deploymentId: string, port: number): Promise<string> => {
   const confPath = path.join(CONF_DIR, `${deploymentId}.conf`);
   
-  const publicHost = process.env.PUBLIC_HOST || '';
+  const publicHost = env.PUBLIC_HOST || '';
   let ip = '127.0.0.1';
   if (publicHost.includes('://')) {
     ip = publicHost.split('://')[1].split(':')[0];
