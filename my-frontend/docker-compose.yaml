@@ -1,0 +1,16 @@
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: nextjs-frontend
+
+    ports:
+      - "4000:4000"
+
+    env_file:
+      - .env 
+
+    environment:
+      NODE_ENV: production

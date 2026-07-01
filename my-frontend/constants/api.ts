@@ -1,0 +1,21 @@
+export const API_METHODS = {
+  GET: 'GET',
+  POST: 'POST',
+  PUT: 'PUT',
+  PATCH: 'PATCH',
+  DELETE: 'DELETE',
+} as const;
+
+export const RESPONSE_CODES = {
+  OK: 200,
+  CREATED: 201,
+  BAD_REQUEST: 400,
+  UNAUTHORIZED: 401,
+  FORBIDDEN: 403,
+  NOT_FOUND: 404,
+  INTERNAL_SERVER_ERROR: 500,
+  TOO_MANY_REQUEST: 429,
+} as const;
+
+export const BACKDEND_BASE_URL = process.env.NEXT_PUBLIC_API_BE_URL;
+export const FE_BASE_URL = process.env.NEXT_PUBLIC_API_FE_URL;

@@ -66,12 +66,12 @@ const processJob = async (job: Job) => {
     deployment.status = 'RUNNING';
     deployment.containerId = containerId;
     deployment.port = hostPort;
-    deployment.publicUrl = `${env.PUBLIC_HOST}${publicUrl}`;
+    deployment.publicUrl = publicUrl;
     await deployment.save();
     notifyStatus('RUNNING');
 
     // Add success message
-    const successMsg = `\r\n\x1b[32m[SUCCESS] Docker container started successfully.\x1b[0m\r\n\x1b[36m[INFO] Port: ${hostPort} | Container ID: ${containerId}\x1b[0m\r\n\x1b[35m[INFO] Public URL: ${env.PUBLIC_HOST}${publicUrl}\x1b[0m\r\n`;
+    const successMsg = `\r\n\x1b[32m[SUCCESS] Docker container started successfully.\x1b[0m\r\n\x1b[36m[INFO] Port: ${hostPort} | Container ID: ${containerId}\x1b[0m\r\n\x1b[35m[INFO] Public URL: ${publicUrl}\x1b[0m\r\n`;
     appendLog(successMsg);
     
     Logger.info('Worker', `Successfully deployed ${deploymentId} on port ${hostPort}`);

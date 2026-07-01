@@ -14,16 +14,29 @@ const CONF_DIR = path.resolve(__dirname, '../../../nginx/conf.d');
  */
 export const configureNginx = async (deploymentId: string, port: number): Promise<string> => {
   const confPath = path.join(CONF_DIR, `${deploymentId}.conf`);
-  const publicPath = `/${deploymentId}`;
+  
+  const publicHost = process.env.PUBLIC_HOST || '';
+  let ip = '127.0.0.1';
+  if (publicHost.includes('://')) {
+    ip = publicHost.split('://')[1].split(':')[0];
+  }
+  
+  const nipDomain = `${deploymentId}.${ip}.nip.io`;
+  const absoluteUrl = `http://${nipDomain}`;
 
   const configContent = `
-location ${publicPath}/ {
-    proxy_pass http://host.docker.internal:${port}/;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection 'upgrade';
-    proxy_set_header Host $host;
-    proxy_cache_bypass $http_upgrade;
+server {
+    listen 80;
+    server_name ${nipDomain};
+
+    location / {
+        proxy_pass http://host.docker.internal:${port}/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+    }
 }
 `;
 
@@ -38,7 +51,7 @@ location ${publicPath}/ {
     
     if (!nginxContainerInfo) {
       console.warn(`[Nginx] ${NGINX_CONTAINER_NAME} container not found. Config written but not reloaded.`);
-      return publicPath;
+      return absoluteUrl;
     }
 
     const nginxContainer = docker.getContainer(nginxContainerInfo.Id);
@@ -79,7 +92,7 @@ location ${publicPath}/ {
     });
     await reloadExec.start({});
     
-    return publicPath;
+    return absoluteUrl;
   } catch (error) {
     // Rollback if something goes wrong during exec
     try {
