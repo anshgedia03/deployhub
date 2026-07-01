@@ -9,7 +9,7 @@ const envSchema = z.object({
   UPLOAD_DIR: z.string().default('uploads'),
   REDIS_HOST: z.string().default('localhost'),
   REDIS_PORT: z.coerce.number().default(6379),
-  MONGODB_URI: z.string().default('mongodb+srv://sumitagedia365:Hh2PzaUaTbaaia4z@cluster0.ex7pp.mongodb.net/deployhub?retryWrites=true&w=majority'),
+  MONGODB_URI: z.string().default('mongodb://localhost:27017/deployx'),
   PUBLIC_HOST: z.string().default('http://52.66.235.124'),
 });
 
