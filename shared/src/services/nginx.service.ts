@@ -42,7 +42,7 @@ server {
         proxy_cache_bypass $http_upgrade;
         
         # Strip Secure flag from cookies since we serve over HTTP
-        proxy_cookie_flags ~ secure off;
+        proxy_cookie_flags * secure off samesite=lax;
     }
 }
 `;
