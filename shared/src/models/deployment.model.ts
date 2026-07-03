@@ -3,7 +3,7 @@ import mongoose, { Document, Schema } from 'mongoose';
 export interface IDeployment extends Document {
   deploymentId: string;
   projectName: string;
-  status: 'UPLOADING' | 'EXTRACTING' | 'VALIDATING' | 'BUILDING' | 'STARTING' | 'RUNNING' | 'FAILED' | 'STOPPED' | 'DELETED';
+  status: 'UPLOADING' | 'CLONING' | 'EXTRACTING' | 'VALIDATING' | 'BUILDING' | 'STARTING' | 'RUNNING' | 'FAILED' | 'STOPPED' | 'DELETED';
   containerId?: string;
   port?: number;
   publicUrl?: string;
@@ -17,9 +17,10 @@ const DeploymentSchema: Schema = new Schema(
     projectName: { type: String, required: true, unique: true },
     status: { 
       type: String, 
-      enum: ['UPLOADING', 'EXTRACTING', 'VALIDATING', 'BUILDING', 'STARTING', 'RUNNING', 'FAILED', 'STOPPED', 'DELETED'], 
+      enum: ['UPLOADING', 'CLONING', 'EXTRACTING', 'VALIDATING', 'BUILDING', 'STARTING', 'RUNNING', 'FAILED', 'STOPPED', 'DELETED'], 
       default: 'UPLOADING' 
     },
+
     containerId: { type: String },
     port: { type: Number },
     publicUrl: { type: String },

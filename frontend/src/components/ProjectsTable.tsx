@@ -93,6 +93,9 @@ export function ProjectsTable() {
 
   const getStatusBadge = (status: string) => {
     switch (status) {
+      case "cloning":
+      case "CLONING":
+        return <Badge className="bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 border-amber-500/20">Cloning</Badge>;
       case "building":
       case "BUILDING":
         return <Badge className="bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 border-blue-500/20">Building</Badge>;
@@ -109,6 +112,7 @@ export function ProjectsTable() {
         return <Badge variant="outline">{status}</Badge>;
     }
   };
+
 
   const handleAction = async (action: string, id: string) => {
     try {
