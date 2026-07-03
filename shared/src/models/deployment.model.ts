@@ -7,6 +7,7 @@ export interface IDeployment extends Document {
   containerId?: string;
   port?: number;
   publicUrl?: string;
+  envVars?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -24,6 +25,7 @@ const DeploymentSchema: Schema = new Schema(
     containerId: { type: String },
     port: { type: Number },
     publicUrl: { type: String },
+    envVars: { type: String },
   },
   { timestamps: true }
 );

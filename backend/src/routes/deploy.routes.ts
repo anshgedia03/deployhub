@@ -2,7 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { handleDeployUpload, handleGitDeploy } from '../controllers/deploy.controller';
 import { uploadMiddleware } from '../middlewares/upload.middleware';
-import { Deployment, AppError } from '@deployhub/shared';
+import { Deployment, AppError, encrypt } from '@deployhub/shared';
 import { notifyStatus } from '../utils/notify';
 import Docker from 'dockerode';
 import fs from 'fs';
@@ -51,9 +51,20 @@ const initDeployment = async (req: Request, res: Response, next: NextFunction) =
     req.deploymentId = deploymentId;
     
     const initialStatus = req.path.includes('/github') ? 'CLONING' : 'UPLOADING';
-    await Deployment.create({ deploymentId, projectName, status: initialStatus });
+    
+    // Encrypt envVars if present
+    const envVarsRaw = req.body.envVars;
+    const encryptedEnv = envVarsRaw ? encrypt(envVarsRaw) : undefined;
+    
+    await Deployment.create({ 
+      deploymentId, 
+      projectName, 
+      status: initialStatus,
+      envVars: encryptedEnv
+    });
     notifyStatus(deploymentId, initialStatus);
     next();
+
   } catch (error) {
     if (req.file) {
       fs.unlink(req.file.path, () => {});

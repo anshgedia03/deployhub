@@ -73,9 +73,14 @@ export const buildDockerImage = async (
  * 
  * @param deploymentId - The image tag to run
  * @param hostPort - The port on the host machine to bind to
+ * @param customEnvs - Array of custom environment variables (KEY=VALUE)
  * @returns The container ID
  */
-export const runContainer = async (deploymentId: string, hostPort: number): Promise<string> => {
+export const runContainer = async (
+  deploymentId: string,
+  hostPort: number,
+  customEnvs: string[] = []
+): Promise<string> => {
   let containerPort = 8080; // default fallback
 
   // Dynamically inspect the image to find the port exposed by the Dockerfile
@@ -94,7 +99,7 @@ export const runContainer = async (deploymentId: string, hostPort: number): Prom
   const container = await docker.createContainer({
     Image: deploymentId,
     name: `deployx-${deploymentId}`,
-    Env: [`PORT=${containerPort}`],
+    Env: [`PORT=${containerPort}`, ...customEnvs],
     ExposedPorts: {
       [`${containerPort}/tcp`]: {}
     },
@@ -113,6 +118,7 @@ export const runContainer = async (deploymentId: string, hostPort: number): Prom
   
   return container.id;
 };
+
 
 /**
  * Prunes dangling (<none>:<none>) images to free up disk space.

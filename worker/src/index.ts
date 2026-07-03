@@ -1,7 +1,7 @@
 import { Worker, Job } from 'bullmq';
 import fs from 'fs';
 import path from 'path';
-import { env, Logger, configureNginx, redisPublisher, Deployment, mongoose } from '@deployhub/shared';
+import { env, Logger, configureNginx, redisPublisher, Deployment, mongoose, decrypt } from '@deployhub/shared';
 import { buildDockerImage, runContainer, pruneDanglingImages } from './docker.service';
 import { getAvailablePort } from './utils/port';
 
@@ -56,8 +56,27 @@ const processJob = async (job: Job) => {
     await deployment.save();
     notifyStatus('STARTING');
     
-    // 5. Run the Container
-    const containerId = await runContainer(projectName, hostPort);
+    // 5. Decrypt and Parse Environment Variables
+    const customEnvs: string[] = [];
+    if (deployment.envVars) {
+      try {
+        const decryptedEnv = decrypt(deployment.envVars);
+        const lines = decryptedEnv.split(/\r?\n/);
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed && !trimmed.startsWith('#')) {
+            customEnvs.push(trimmed);
+          }
+        }
+        appendLog(`[INFO] Decrypted and loaded custom environment variables.\r\n`);
+      } catch (decryptErr) {
+        Logger.error('Worker', 'Failed to decrypt envVars:', decryptErr);
+        appendLog(`[WARNING] Failed to decrypt custom environment variables.\r\n`);
+      }
+    }
+
+    // 6. Run the Container
+    const containerId = await runContainer(projectName, hostPort, customEnvs);
 
     // 6. Generate Nginx configuration and reload
     const publicUrl = await configureNginx(projectName, hostPort);

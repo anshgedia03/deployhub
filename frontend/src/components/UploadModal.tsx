@@ -26,6 +26,8 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
   const [projectName, setProjectName] = useState("");
   const [gitUrl, setGitUrl] = useState("");
   const [branch, setBranch] = useState("main");
+  const [envVars, setEnvVars] = useState("");
+  const [showEnv, setShowEnv] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nameError, setNameError] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -77,6 +79,9 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
     const formData = new FormData();
     formData.append("file", file);
     formData.append("projectName", projectName.trim());
+    if (envVars.trim()) {
+      formData.append("envVars", envVars.trim());
+    }
 
     try {
       const xhr = new XMLHttpRequest();
@@ -144,6 +149,7 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
           projectName: projectName.trim(),
           gitUrl: gitUrl.trim(),
           branch: branch.trim() || "main",
+          envVars: envVars.trim() || undefined,
         }),
       });
 
@@ -169,6 +175,8 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
     setProjectName("");
     setGitUrl("");
     setBranch("main");
+    setEnvVars("");
+    setShowEnv(false);
     setError(null);
     setNameError(null);
     setUploadProgress(0);
@@ -289,6 +297,33 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
                   <GitBranch className="absolute left-3 top-2.5 w-4 h-4 text-zinc-500" />
                 </div>
               </div>
+            </div>
+          )}
+
+          {uploadStatus === "idle" && (
+            <div className="border border-zinc-800 rounded-lg overflow-hidden bg-zinc-900/30">
+              <button
+                type="button"
+                onClick={() => setShowEnv(!showEnv)}
+                className="w-full px-4 py-2.5 flex items-center justify-between text-sm font-medium text-zinc-300 hover:bg-zinc-800/40 transition-colors"
+              >
+                <span>Environment Variables (.env)</span>
+                <span className="text-xs text-zinc-500">{showEnv ? "Collapse" : "Expand"}</span>
+              </button>
+              {showEnv && (
+                <div className="p-4 border-t border-zinc-800 bg-zinc-955/40 space-y-2">
+                  <p className="text-xs text-zinc-500">
+                    Specify custom environment variables for your application container (e.g. <code>KEY=VALUE</code>).
+                  </p>
+                  <textarea
+                    placeholder="DATABASE_URL=mongodb://...&#10;API_KEY=xyz123&#10;# This is a comment"
+                    value={envVars}
+                    onChange={(e) => setEnvVars(e.target.value)}
+                    rows={4}
+                    className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-md text-xs text-zinc-100 placeholder-zinc-650 focus:outline-none focus:border-zinc-700 font-mono resize-y"
+                  />
+                </div>
+              )}
             </div>
           )}
 

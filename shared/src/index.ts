@@ -4,5 +4,7 @@ export * from './services/nginx.service';
 export * from './redis/client';
 export * from './utils/logger';
 export * from './errors/AppError';
+export * from './utils/crypto';
 import mongoose from 'mongoose';
 export { mongoose };
+
