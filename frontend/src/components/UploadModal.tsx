@@ -2,7 +2,7 @@
 
 import React, { useState, useCallback } from "react";
 import { useDropzone } from "react-dropzone";
-import { UploadCloud, FileArchive, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
+import { UploadCloud, FileArchive, CheckCircle, AlertCircle, Loader2, GitBranch, Terminal } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -21,8 +21,11 @@ interface UploadModalProps {
 }
 
 export function UploadModal({ isOpen, onClose }: UploadModalProps) {
+  const [deployType, setDeployType] = useState<"zip" | "git">("zip");
   const [file, setFile] = useState<File | null>(null);
   const [projectName, setProjectName] = useState("");
+  const [gitUrl, setGitUrl] = useState("");
+  const [branch, setBranch] = useState("main");
   const [error, setError] = useState<string | null>(null);
   const [nameError, setNameError] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -76,7 +79,6 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
     formData.append("projectName", projectName.trim());
 
     try {
-      // Create a local XHR request to track progress
       const xhr = new XMLHttpRequest();
       xhr.open("POST", getApiUrl("/deploy"), true);
 
@@ -93,9 +95,6 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
           setUploadProgress(100);
           const response = JSON.parse(xhr.responseText);
           toast.success("Upload successful! Project building started.");
-          // If we receive a deploymentId, we can bubble it up 
-          // but for now we just handle it on "Done" click.
-          // Let's pass it to onClose instead!
           onClose(response.deploymentId);
         } else {
           try {
@@ -124,9 +123,52 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
     }
   };
 
+  const handleGitDeploy = async () => {
+    if (!validateProjectName(projectName)) return;
+    if (!gitUrl.trim()) {
+      setError("Git Repository URL is required.");
+      return;
+    }
+
+    setUploadStatus("uploading");
+    setError(null);
+    setUploadProgress(30);
+
+    try {
+      const response = await fetch(getApiUrl("/deploy/github"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          projectName: projectName.trim(),
+          gitUrl: gitUrl.trim(),
+          branch: branch.trim() || "main",
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to trigger git deployment");
+      }
+
+      setUploadStatus("success");
+      setUploadProgress(100);
+      toast.success("Git deployment triggered successfully!");
+      onClose(data.deploymentId);
+    } catch (err: any) {
+      setError(err.message || "An unexpected error occurred.");
+      toast.error(err.message || "An unexpected error occurred.");
+      setUploadStatus("error");
+    }
+  };
+
   const handleReset = () => {
     setFile(null);
     setProjectName("");
+    setGitUrl("");
+    setBranch("main");
     setError(null);
     setNameError(null);
     setUploadProgress(0);
@@ -139,11 +181,44 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
         <DialogHeader>
           <DialogTitle className="text-xl font-bold tracking-tight">Deploy Project</DialogTitle>
           <DialogDescription className="text-zinc-400">
-            Provide a project name and upload your application source code as a ZIP file.
+            Provide a project name and source configuration.
           </DialogDescription>
         </DialogHeader>
 
         <div className="py-4 space-y-4">
+          {uploadStatus === "idle" && (
+            <div className="flex gap-2 p-1 bg-zinc-900 border border-zinc-800 rounded-lg">
+              <button
+                type="button"
+                onClick={() => {
+                  setDeployType("zip");
+                  setError(null);
+                }}
+                className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all duration-200 ${
+                  deployType === "zip"
+                    ? "bg-zinc-800 text-zinc-100 shadow-sm"
+                    : "text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                ZIP Upload
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDeployType("git");
+                  setError(null);
+                }}
+                className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all duration-200 ${
+                  deployType === "git"
+                    ? "bg-zinc-800 text-zinc-100 shadow-sm"
+                    : "text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                Git Repository
+              </button>
+            </div>
+          )}
+
           {uploadStatus === "idle" && (
             <div className="space-y-1.5">
               <label htmlFor="projectName" className="text-sm font-medium text-zinc-300">
@@ -166,7 +241,7 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
             </div>
           )}
 
-          {uploadStatus === "idle" && !file && (
+          {uploadStatus === "idle" && deployType === "zip" && !file && (
             <div
               {...getRootProps()}
               className={`border-2 border-dashed rounded-lg p-10 flex flex-col items-center justify-center transition-colors cursor-pointer
@@ -182,6 +257,41 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
             </div>
           )}
 
+          {uploadStatus === "idle" && deployType === "git" && (
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label htmlFor="gitUrl" className="text-sm font-medium text-zinc-300">
+                  Git Repository URL
+                </label>
+                <input
+                  id="gitUrl"
+                  type="text"
+                  placeholder="https://github.com/username/repo.git"
+                  value={gitUrl}
+                  onChange={(e) => setGitUrl(e.target.value)}
+                  className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-md text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-zinc-700 transition-colors"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label htmlFor="branch" className="text-sm font-medium text-zinc-300">
+                  Branch
+                </label>
+                <div className="relative">
+                  <input
+                    id="branch"
+                    type="text"
+                    placeholder="main"
+                    value={branch}
+                    onChange={(e) => setBranch(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 bg-zinc-900 border border-zinc-800 rounded-md text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-zinc-700 transition-colors"
+                  />
+                  <GitBranch className="absolute left-3 top-2.5 w-4 h-4 text-zinc-500" />
+                </div>
+              </div>
+            </div>
+          )}
+
           {error && (
             <div className="p-3 rounded bg-red-500/10 border border-red-500/20 flex items-center gap-2 text-red-400 text-sm">
               <AlertCircle className="w-4 h-4" />
@@ -189,7 +299,7 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
             </div>
           )}
 
-          {(file || uploadStatus !== "idle") && (
+          {deployType === "zip" && (file || uploadStatus !== "idle") && (
             <div className="border border-zinc-800 rounded-lg p-4 bg-zinc-900">
               <div className="flex items-center gap-3 mb-4">
                 <div className="p-2 bg-blue-500/20 text-blue-400 rounded">
@@ -217,6 +327,33 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
               )}
             </div>
           )}
+
+          {deployType === "git" && uploadStatus !== "idle" && (
+            <div className="border border-zinc-800 rounded-lg p-4 bg-zinc-900 space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-blue-500/20 text-blue-400 rounded">
+                  <Terminal className="w-6 h-6" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">Cloning Git Repository</p>
+                  <p className="text-xs text-zinc-500">
+                    {gitUrl} ({branch})
+                  </p>
+                </div>
+                {uploadStatus === "success" && <CheckCircle className="w-5 h-5 text-emerald-500" />}
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex justify-between text-xs font-medium text-zinc-400">
+                  <span>
+                    {uploadStatus === "uploading" ? "Connecting and cloning..." : "Cloning and verification complete"}
+                  </span>
+                  <span>{Math.min(uploadProgress, 100)}%</span>
+                </div>
+                <Progress value={uploadProgress} className="h-2" />
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex justify-end gap-3">
@@ -229,14 +366,14 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
             </Button>
           ) : (
             <Button
-              onClick={file ? handleUpload : undefined}
-              disabled={!file || uploadStatus === "uploading"}
+              onClick={deployType === "zip" ? (file ? handleUpload : undefined) : handleGitDeploy}
+              disabled={(deployType === "zip" ? !file : !gitUrl) || uploadStatus === "uploading"}
               className="bg-blue-600 hover:bg-blue-700 text-white min-w-[100px]"
             >
               {uploadStatus === "uploading" ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Uploading
+                  Deploying
                 </>
               ) : (
                 "Deploy"
@@ -248,3 +385,4 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
     </Dialog>
   );
 }
+

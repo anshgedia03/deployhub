@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import { handleDeployUpload } from '../controllers/deploy.controller';
+import { handleDeployUpload, handleGitDeploy } from '../controllers/deploy.controller';
 import { uploadMiddleware } from '../middlewares/upload.middleware';
 import { Deployment, AppError } from '@deployhub/shared';
 import { notifyStatus } from '../utils/notify';
@@ -49,8 +49,10 @@ const initDeployment = async (req: Request, res: Response, next: NextFunction) =
 
     const deploymentId = uuidv4();
     req.deploymentId = deploymentId;
-    await Deployment.create({ deploymentId, projectName, status: 'UPLOADING' });
-    notifyStatus(deploymentId, 'UPLOADING');
+    
+    const initialStatus = req.path.includes('/github') ? 'CLONING' : 'UPLOADING';
+    await Deployment.create({ deploymentId, projectName, status: initialStatus });
+    notifyStatus(deploymentId, initialStatus);
     next();
   } catch (error) {
     if (req.file) {
@@ -61,5 +63,7 @@ const initDeployment = async (req: Request, res: Response, next: NextFunction) =
 };
 
 router.post('/', uploadMiddleware.single('file'), initDeployment, handleDeployUpload);
+router.post('/github', initDeployment, handleGitDeploy);
 
 export default router;
+
