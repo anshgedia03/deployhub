@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { io } from "socket.io-client";
-import { ExternalLink, Play, Square, Trash2, MoreHorizontal, Server } from "lucide-react";
+import { ExternalLink, Play, Square, Trash2, MoreHorizontal, Server, GitBranch, FileArchive, LayoutGrid, List, Triangle, Check, Loader2, X, Terminal, Settings, Star } from "lucide-react";
 import { toast } from "sonner";
 import { getApiUrl, getSocketUrl } from "@/config/api";
 import {
@@ -20,7 +20,10 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
 
 interface Deployment {
@@ -30,12 +33,14 @@ interface Deployment {
   status: "building" | "running" | "failed" | "stopped";
   port?: number;
   publicUrl?: string;
+  gitUrl?: string;
   createdAt: string;
 }
 
 export function ProjectsTable() {
   const [deployments, setDeployments] = useState<Deployment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
 
   const fetchDeployments = async () => {
     try {
@@ -113,6 +118,18 @@ export function ProjectsTable() {
     }
   };
 
+  const getStatusGridIcon = (status: string) => {
+    switch (status.toLowerCase()) {
+      case 'running': return <Check className="w-4 h-4 text-emerald-500" />;
+      case 'building':
+      case 'cloning':
+      case 'validating': 
+        return <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />;
+      case 'failed': return <X className="w-4 h-4 text-red-500" />;
+      case 'stopped': return <Square className="w-4 h-4 text-zinc-500" />;
+      default: return <Server className="w-4 h-4 text-zinc-400" />;
+    }
+  };
 
   const handleAction = async (action: string, id: string) => {
     try {
@@ -162,16 +179,133 @@ export function ProjectsTable() {
     );
   }
 
+  const renderActions = (deployment: Deployment, isRunning: boolean, isBuilding: boolean) => (
+    <DropdownMenu>
+      <DropdownMenuTrigger className="h-8 w-8 inline-flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/80 focus:outline-none transition-all cursor-pointer">
+        <MoreHorizontal className="h-4 w-4" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent 
+        align="end" 
+        side="bottom"
+        sideOffset={8}
+        className="w-56 bg-zinc-950/80 backdrop-blur-xl border border-zinc-800/80 rounded-xl p-2 shadow-2xl text-zinc-300"
+      >
+        <DropdownMenuGroup>
+          <DropdownMenuLabel className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider px-2 py-1.5">
+            Project Operations
+          </DropdownMenuLabel>
+          <DropdownMenuItem 
+            className="rounded-lg px-3 py-2 hover:bg-blue-500/10 hover:text-blue-400 cursor-pointer transition-colors"
+            onClick={() => handleAction('open', deployment.deploymentId)}
+            disabled={!isRunning}
+          >
+            <ExternalLink className="mr-3 h-4 w-4" />
+            <span className="font-medium">Open App</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem 
+            className="rounded-lg px-3 py-2 hover:bg-emerald-500/10 hover:text-emerald-400 cursor-pointer transition-colors"
+            onClick={() => handleAction('start', deployment.deploymentId)}
+            disabled={isRunning || isBuilding}
+          >
+            <Play className="mr-3 h-4 w-4" />
+            <span className="font-medium">Start Server</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem 
+            className="rounded-lg px-3 py-2 hover:bg-amber-500/10 hover:text-amber-400 cursor-pointer transition-colors"
+            onClick={() => handleAction('stop', deployment.deploymentId)}
+            disabled={!isRunning}
+          >
+            <Square className="mr-3 h-4 w-4" />
+            <span className="font-medium">Stop Server</span>
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+        
+        <DropdownMenuSeparator className="bg-zinc-800/60 my-2" />
+        
+        <DropdownMenuGroup>
+          <DropdownMenuLabel className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider px-2 py-1.5">
+            Developer Tools
+          </DropdownMenuLabel>
+          <DropdownMenuItem 
+            className="rounded-lg px-3 py-2 hover:bg-zinc-800/80 hover:text-zinc-100 cursor-pointer transition-colors"
+            onClick={() => toast.info('View Logs coming soon')}
+          >
+            <Terminal className="mr-3 h-4 w-4 text-zinc-400" />
+            <span className="font-medium">View Logs</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem 
+            className="rounded-lg px-3 py-2 hover:bg-zinc-800/80 hover:text-zinc-100 cursor-pointer transition-colors"
+            onClick={() => toast.info('Settings coming soon')}
+          >
+            <Settings className="mr-3 h-4 w-4 text-zinc-400" />
+            <span className="font-medium">Settings</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem 
+            className="rounded-lg px-3 py-2 hover:bg-yellow-500/10 hover:text-yellow-400 cursor-pointer transition-colors"
+            onClick={() => toast.success('Added to favorites')}
+          >
+            <Star className="mr-3 h-4 w-4 text-zinc-400 group-hover:text-yellow-400" />
+            <span className="font-medium">Add to Favorites</span>
+          </DropdownMenuItem>
+          {deployment.gitUrl && (
+            <DropdownMenuItem 
+              className="rounded-lg px-3 py-2 hover:bg-zinc-800/80 hover:text-zinc-100 cursor-pointer transition-colors"
+              onClick={() => window.open(deployment.gitUrl?.replace('.git', ''), '_blank')}
+            >
+              <GitBranch className="mr-3 h-4 w-4 text-zinc-400" />
+              <span className="font-medium">View Git Repo</span>
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuGroup>
+
+        <DropdownMenuSeparator className="bg-zinc-800/60 my-2" />
+        
+        <DropdownMenuItem 
+          className="rounded-lg px-3 py-2 bg-red-500/5 text-red-500 hover:bg-red-500/15 focus:bg-red-500/20 focus:text-red-500 cursor-pointer transition-colors"
+          onClick={() => handleAction('delete', deployment.deploymentId)}
+        >
+          <Trash2 className="mr-3 h-4 w-4" />
+          <span className="font-medium">Delete Project</span>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
   return (
-    <div className="rounded-md border border-zinc-800 bg-[#111114]">
-      <Table>
+    <div className="w-full">
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-xl font-bold text-zinc-100 flex items-center gap-2">
+          <Server className="w-5 h-5 text-zinc-400" />
+          All Projects
+        </h2>
+        <div className="flex items-center p-1 bg-[#111114] border border-zinc-800 rounded-lg">
+          <button 
+            onClick={() => setViewMode('list')}
+            className={`p-1.5 rounded-md transition-all ${viewMode === 'list' ? 'bg-zinc-800/80 text-zinc-100 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+          >
+            <List className="w-4 h-4" />
+          </button>
+          <button 
+            onClick={() => setViewMode('grid')}
+            className={`p-1.5 rounded-md transition-all ${viewMode === 'grid' ? 'bg-zinc-800/80 text-zinc-100 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+          >
+            <LayoutGrid className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {viewMode === 'list' ? (
+        <div className="rounded-md border border-zinc-800 bg-[#111114]">
+          <Table>
         <TableHeader>
           <TableRow className="border-zinc-800 hover:bg-zinc-900/50">
-            <TableHead className="text-zinc-400 font-medium">Project Name</TableHead>
-            <TableHead className="text-zinc-400 font-medium">Status</TableHead>
-            <TableHead className="text-zinc-400 font-medium">Port</TableHead>
-            <TableHead className="text-zinc-400 font-medium">Created</TableHead>
-            <TableHead className="text-zinc-400 font-medium text-right">Actions</TableHead>
+            <TableHead className="text-zinc-400 font-medium w-[20%]">Project Name</TableHead>
+            <TableHead className="text-zinc-400 font-medium w-[15%]">Status</TableHead>
+            <TableHead className="text-zinc-400 font-medium w-[10%]">Port</TableHead>
+            <TableHead className="text-zinc-400 font-medium w-[20%]">Method</TableHead>
+            <TableHead className="text-zinc-400 font-medium w-[15%]">Latest Commit</TableHead>
+            <TableHead className="text-zinc-400 font-medium w-[15%]">Created</TableHead>
+            <TableHead className="text-zinc-400 font-medium w-[5%] text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -202,54 +336,112 @@ export function ProjectsTable() {
                     <span className="text-zinc-600">-</span>
                   )}
                 </TableCell>
+                <TableCell>
+                  {deployment.gitUrl ? (
+                    <a 
+                      href={deployment.gitUrl.replace('.git', '')} 
+                      target="_blank" 
+                      rel="noopener noreferrer" 
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-zinc-800/60 text-zinc-300 text-xs font-medium hover:bg-zinc-700/60 transition-colors"
+                    >
+                      <GitBranch className="w-3.5 h-3.5" />
+                      {deployment.gitUrl.replace('https://github.com/', '').replace('.git', '')}
+                    </a>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-zinc-800/40 text-zinc-400 text-xs font-medium">
+                      <FileArchive className="w-3.5 h-3.5" />
+                      ZIP File
+                    </span>
+                  )}
+                </TableCell>
+                <TableCell>
+                  {deployment.commitMessage ? (
+                    <span className="text-[11px] text-zinc-500 font-mono truncate max-w-[200px] inline-block" title={deployment.commitMessage}>
+                      {deployment.commitMessage}
+                    </span>
+                  ) : (
+                    <span className="text-zinc-600">-</span>
+                  )}
+                </TableCell>
                 <TableCell className="text-zinc-500 text-sm">
                   {formatDistanceToNow(new Date(deployment.createdAt), { addSuffix: true })}
                 </TableCell>
                 <TableCell className="text-right">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger className="h-8 w-8 inline-flex items-center justify-center rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 focus:outline-none transition-colors cursor-pointer">
-                      <MoreHorizontal className="h-4 w-4" />
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="bg-zinc-900 border-zinc-800 text-zinc-300">
-                      <DropdownMenuItem 
-                        className="hover:bg-zinc-800 hover:text-zinc-100 cursor-pointer"
-                        onClick={() => handleAction('open', deployment.deploymentId)}
-                        disabled={!isRunning}
-                      >
-                        <ExternalLink className="mr-2 h-4 w-4" />
-                        <span>Open</span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem 
-                        className="hover:bg-zinc-800 hover:text-zinc-100 cursor-pointer"
-                        onClick={() => handleAction('stop', deployment.deploymentId)}
-                        disabled={!isRunning}
-                      >
-                        <Square className="mr-2 h-4 w-4 text-amber-400" />
-                        <span>Stop</span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem 
-                        className="hover:bg-zinc-800 hover:text-zinc-100 cursor-pointer"
-                        onClick={() => handleAction('start', deployment.deploymentId)}
-                        disabled={isRunning || isBuilding}
-                      >
-                        <Play className="mr-2 h-4 w-4 text-emerald-400" />
-                        <span>Start</span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem 
-                        className="hover:bg-red-500/10 text-red-500 cursor-pointer focus:bg-red-500/20 focus:text-red-500"
-                        onClick={() => handleAction('delete', deployment.deploymentId)}
-                      >
-                        <Trash2 className="mr-2 h-4 w-4" />
-                        <span>Delete</span>
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  {renderActions(deployment, isRunning, isBuilding)}
                 </TableCell>
               </TableRow>
             );
           })}
         </TableBody>
       </Table>
+      </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+          {deployments.map(deployment => {
+            const isRunning = deployment.status.toLowerCase() === 'running';
+            const isBuilding = deployment.status.toLowerCase() === 'building';
+            
+            return (
+              <div key={deployment.deploymentId} className="bg-[#111114] border border-zinc-800 rounded-xl p-5 hover:bg-zinc-900/50 transition-colors flex flex-col">
+                <div className="flex justify-between items-start mb-5">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-400 flex-shrink-0">
+                      <Triangle className="w-5 h-5 fill-zinc-200 text-zinc-200" />
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="text-zinc-100 font-bold text-[15px] leading-tight truncate mb-0.5">
+                        {deployment.projectName || deployment.deploymentId.split('-')[0]}
+                      </h3>
+                      <p className="text-zinc-500 text-xs truncate">
+                        {deployment.publicUrl ? deployment.publicUrl.replace('https://', '') : `${deployment.projectName || deployment.deploymentId.split('-')[0]}.deployhub.local`}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 ml-2 flex-shrink-0">
+                    <div className="w-7 h-7 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center" title={deployment.status}>
+                      {getStatusGridIcon(deployment.status)}
+                    </div>
+                    {renderActions(deployment, isRunning, isBuilding)}
+                  </div>
+                </div>
+
+                <div className="mb-5">
+                  {deployment.gitUrl ? (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-zinc-900/80 border border-zinc-800/80 text-zinc-300 text-xs font-medium">
+                      <GitBranch className="w-3.5 h-3.5" />
+                      {deployment.gitUrl.replace('https://github.com/', '').replace('.git', '')}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-zinc-900/80 border border-zinc-800/80 text-zinc-400 text-xs font-medium">
+                      <FileArchive className="w-3.5 h-3.5" />
+                      ZIP File
+                    </span>
+                  )}
+                </div>
+
+                <div className="mt-auto flex flex-col gap-1.5 text-[13px]">
+                  <div className="text-zinc-200 font-medium truncate">
+                    {deployment.commitMessage || "No Production Deployment"}
+                  </div>
+                  <div className="text-zinc-500 flex items-center gap-1.5">
+                    {formatDistanceToNow(new Date(deployment.createdAt))} 
+                    {deployment.branch && (
+                      <>
+                        on <GitBranch className="w-3.5 h-3.5 text-zinc-600" /> <span className="font-mono text-zinc-400">{deployment.branch}</span>
+                      </>
+                    )}
+                    {deployment.port && (
+                      <span className="ml-auto flex items-center gap-1.5 text-zinc-400">
+                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> {deployment.port}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

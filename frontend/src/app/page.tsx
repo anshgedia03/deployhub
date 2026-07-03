@@ -50,10 +50,7 @@ export default function Home() {
       {/* Main Content */}
       <div className="md:ml-64 p-6 lg:p-10">
         <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-10 gap-4">
-          <div>
-            <h1 className="text-3xl font-bold text-zinc-100 tracking-tight">Dashboard</h1>
-            <p className="text-zinc-500 text-sm mt-1">Manage and deploy your applications instantly.</p>
-          </div>
+          <div />
           <Button
             size="lg"
             className="bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/20 font-bold transition-all"
@@ -64,25 +61,6 @@ export default function Home() {
           </Button>
         </header>
 
-        {/* Dashboard Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          <Card className="bg-[#111114] border-zinc-800">
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2 text-zinc-100">
-                <TerminalIcon className="w-5 h-5 text-zinc-400" />
-                Active Deployments
-              </CardTitle>
-              <CardDescription className="text-zinc-500">Currently running applications</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="text-4xl font-bold text-zinc-100">{deploymentId ? 1 : 0}</div>
-              <p className="text-xs text-zinc-500 mt-2">
-                {deploymentId ? "1 deployment in progress" : "Waiting for your first deployment"}
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-
         {deploymentId ? (
           <Terminal 
             deploymentId={deploymentId} 
@@ -90,10 +68,6 @@ export default function Home() {
           />
         ) : (
           <div className="mt-12">
-            <h2 className="text-xl font-bold text-zinc-100 mb-6 flex items-center gap-2">
-              <Server className="w-5 h-5 text-zinc-400" />
-              All Projects
-            </h2>
             <ProjectsTable />
           </div>
         )}

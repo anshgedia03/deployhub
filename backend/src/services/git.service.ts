@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import { Deployment, Logger, ValidationError, redisPublisher } from '@deployhub/shared';
 import { deployQueue } from '../queue/deploy.queue';
 import { notifyStatus } from '../utils/notify';
@@ -64,6 +64,15 @@ export class GitDeployService {
 
       appendLog(`\r\n[INFO] Git clone completed successfully. Moving files...\r\n`);
 
+      let commitMessage = '';
+      try {
+        const stdout = execSync('git log -1 --pretty=format:"%h - %s"', { cwd: tempPath, encoding: 'utf-8' });
+        commitMessage = stdout.trim();
+        appendLog(`[INFO] Last commit: ${commitMessage}\r\n`);
+      } catch (e) {
+        Logger.error('GitDeployService', 'Failed to get commit message', e);
+      }
+
       // Move files from tempPath to extractPath
       const files = fs.readdirSync(tempPath);
       for (const file of files) {
@@ -72,7 +81,7 @@ export class GitDeployService {
       fs.rmdirSync(tempPath);
 
       // 3. Update state to VALIDATING
-      await Deployment.updateOne({ deploymentId }, { status: 'VALIDATING' });
+      await Deployment.updateOne({ deploymentId }, { status: 'VALIDATING', commitMessage });
       notifyStatus(deploymentId, 'VALIDATING');
       appendLog(`[INFO] Validating repository structure...\r\n`);
 

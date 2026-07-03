@@ -8,6 +8,9 @@ export interface IDeployment extends Document {
   port?: number;
   publicUrl?: string;
   envVars?: string;
+  gitUrl?: string;
+  branch?: string;
+  commitMessage?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -26,6 +29,9 @@ const DeploymentSchema: Schema = new Schema(
     port: { type: Number },
     publicUrl: { type: String },
     envVars: { type: String },
+    gitUrl: { type: String },
+    branch: { type: String },
+    commitMessage: { type: String },
   },
   { timestamps: true }
 );

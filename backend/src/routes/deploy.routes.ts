@@ -60,7 +60,9 @@ const initDeployment = async (req: Request, res: Response, next: NextFunction) =
       deploymentId, 
       projectName, 
       status: initialStatus,
-      envVars: encryptedEnv
+      envVars: encryptedEnv,
+      gitUrl: req.body.gitUrl,
+      branch: req.body.branch || 'main'
     });
     notifyStatus(deploymentId, initialStatus);
     next();

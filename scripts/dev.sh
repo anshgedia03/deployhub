@@ -1,7 +1,10 @@
 #!/bin/bash
 
 echo "Starting infrastructure (MongoDB, Redis)..."
-docker-compose up -d mongodb redis
+docker-compose up -d 
+
+echo "Building shared module..."
+npm run build -w shared
 
 echo "Starting Next.js Frontend..."
 npm run dev --workspace=frontend &
