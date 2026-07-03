@@ -8,10 +8,14 @@ import { notifyStatus } from '../utils/notify';
 export class GitDeployService {
   static async processGitDeploy(deploymentId: string, gitUrl: string, branch: string = 'main') {
     const extractPath = path.resolve(process.cwd(), `deployments/${deploymentId}`);
+    const tempPath = path.resolve(process.cwd(), `deployments/${deploymentId}_temp`);
     
-    // Create deployments directory if it doesn't exist
+    // Create directories if they don't exist
     if (!fs.existsSync(extractPath)) {
       fs.mkdirSync(extractPath, { recursive: true });
+    }
+    if (!fs.existsSync(tempPath)) {
+      fs.mkdirSync(tempPath, { recursive: true });
     }
 
     const logFilePath = path.join(extractPath, 'build.log');
@@ -32,7 +36,7 @@ export class GitDeployService {
       await new Promise<void>((resolve, reject) => {
         // Spawn git clone command
         const gitProcess = spawn('git', ['clone', '--depth', '1', '-b', branch, gitUrl, '.'], {
-          cwd: extractPath,
+          cwd: tempPath,
           env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } // Prevent interactive prompts (e.g. password prompts)
         });
 
@@ -58,7 +62,14 @@ export class GitDeployService {
         });
       });
 
-      appendLog(`\r\n[INFO] Git clone completed successfully.\r\n`);
+      appendLog(`\r\n[INFO] Git clone completed successfully. Moving files...\r\n`);
+
+      // Move files from tempPath to extractPath
+      const files = fs.readdirSync(tempPath);
+      for (const file of files) {
+        fs.renameSync(path.join(tempPath, file), path.join(extractPath, file));
+      }
+      fs.rmdirSync(tempPath);
 
       // 3. Update state to VALIDATING
       await Deployment.updateOne({ deploymentId }, { status: 'VALIDATING' });
@@ -88,6 +99,15 @@ export class GitDeployService {
       const errMsg = `\r\n\x1b[31m[ERROR] Git deployment failed: ${error instanceof Error ? error.message : String(error)}\x1b[0m\r\n`;
       appendLog(errMsg);
 
+      // Clean up temp directory if it exists
+      if (fs.existsSync(tempPath)) {
+        try {
+          fs.rmSync(tempPath, { recursive: true, force: true });
+        } catch (cleanupErr) {
+          Logger.error('GitDeployService', 'Failed to clean up temp files after failure', cleanupErr);
+        }
+      }
+
       // Clean up directory if clone failed
       if (fs.existsSync(extractPath)) {
         try {
@@ -108,4 +128,5 @@ export class GitDeployService {
       logStream.end();
     }
   }
+
 }
