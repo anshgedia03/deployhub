@@ -40,13 +40,37 @@ const processJob = async (job: Job) => {
 
   const projectName = deployment.projectName || deploymentId;
 
+  let hasTempEnv = false;
   try {
+    // Write build-time environment variables to .env if configured
+    if (deployment.envVars) {
+      try {
+        const decryptedEnv = decrypt(deployment.envVars);
+        fs.writeFileSync(path.join(extractPath, '.env'), decryptedEnv);
+        hasTempEnv = true;
+        appendLog(`[INFO] Loaded environment variables for Docker build.\r\n`);
+      } catch (err) {
+        Logger.error('Worker', 'Failed to write temp .env file for build:', err);
+      }
+    }
+
     // 2. Build Docker Image
     await buildDockerImage(extractPath, projectName, (logChunk) => {
       if (logChunk) {
         appendLog(logChunk + '\r\n'); // xterm formatting
       }
     });
+    
+    // Clean up temp .env immediately after build so it's not left on disk
+    if (hasTempEnv) {
+      try {
+        fs.unlinkSync(path.join(extractPath, '.env'));
+        hasTempEnv = false;
+      } catch (err) {
+        Logger.error('Worker', 'Failed to clean up temp .env file after build:', err);
+      }
+    }
+
     
     // 3. Find available port
     const hostPort = await getAvailablePort();
@@ -107,9 +131,19 @@ const processJob = async (job: Job) => {
   } finally {
     logStream.end();
     
+    // Fallback cleanup of temp .env file if it exists
+    if (hasTempEnv) {
+      try {
+        fs.unlinkSync(path.join(extractPath, '.env'));
+      } catch (err) {
+        // Ignore if already deleted
+      }
+    }
+    
     // Asynchronously prune dangling images so we don't block
     pruneDanglingImages().catch((err) => Logger.error('Worker', 'Error pruning images', err));
   }
+
 };
 
 const worker = new Worker('deployments', processJob, {
