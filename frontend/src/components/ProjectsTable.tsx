@@ -30,10 +30,12 @@ interface Deployment {
   _id: string;
   deploymentId: string;
   projectName: string;
-  status: "building" | "running" | "failed" | "stopped";
+  status: "building" | "running" | "failed" | "stopped" | "cloning";
   port?: number;
   publicUrl?: string;
   gitUrl?: string;
+  commitMessage?: string;
+  branch?: string;
   createdAt: string;
 }
 
