@@ -24,8 +24,8 @@ const processJob = async (job: Job) => {
     await deployment.save();
   }
   
-  const notifyStatus = (status: string) => {
-    redisPublisher.publish('status:broadcast', JSON.stringify({ deploymentId, status }));
+  const notifyStatus = (status: string, additionalData: Record<string, any> = {}) => {
+    redisPublisher.publish('status:broadcast', JSON.stringify({ deploymentId, status, ...additionalData }));
   };
   
   notifyStatus('BUILDING');
@@ -111,7 +111,7 @@ const processJob = async (job: Job) => {
     deployment.port = hostPort;
     deployment.publicUrl = publicUrl;
     await deployment.save();
-    notifyStatus('RUNNING');
+    notifyStatus('RUNNING', { port: hostPort, publicUrl, startedAt: new Date().toISOString() });
 
     // Add success message
     const successMsg = `\r\n\x1b[32m[SUCCESS] Docker container started successfully.\x1b[0m\r\n\x1b[36m[INFO] Port: ${hostPort} | Container ID: ${containerId}\x1b[0m\r\n\x1b[35m[INFO] Public URL: ${publicUrl}\x1b[0m\r\n`;

@@ -3,6 +3,7 @@ import cors from 'cors';
 import deployRoutes from './routes/deploy.routes';
 import projectsRoutes from './routes/projects.routes';
 import webhookRoutes from './routes/webhook.routes';
+import authRoutes from './routes/auth.routes';
 import { errorHandler } from './middlewares/errorHandler';
 
 const app = express();
@@ -16,6 +17,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/deploy', deployRoutes);
 app.use('/projects', projectsRoutes);
 app.use('/webhooks', webhookRoutes);
+app.use('/auth', authRoutes);
 
 // Health check endpoint
 app.get('/health', (req: express.Request, res: express.Response) => {

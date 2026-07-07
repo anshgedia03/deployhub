@@ -10,7 +10,7 @@ export const getApiUrl = (path: string): string => {
       return `/api${path}`;
     }
   }
-  return `http://localhost:4000${path}`;
+  return `http://${typeof window !== 'undefined' ? window.location.hostname : 'localhost'}:4000${path}`;
 };
 
 /**
@@ -25,5 +25,5 @@ export const getSocketUrl = (): string => {
       return window.location.origin;
     }
   }
-  return "http://localhost:4000";
+  return `http://${typeof window !== 'undefined' ? window.location.hostname : 'localhost'}:4000`;
 };

@@ -9,7 +9,14 @@ const docker = new Docker();
 
 export const getProjects = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const projects = await Deployment.find().sort({ createdAt: -1 });
+    const { search } = req.query;
+    
+    let query = {};
+    if (search && typeof search === 'string') {
+      query = { projectName: { $regex: search, $options: 'i' } };
+    }
+
+    const projects = await Deployment.find(query).sort({ createdAt: -1 });
     
     const projectsWithUptime = await Promise.all(
       projects.map(async (project) => {
@@ -91,7 +98,7 @@ export const startDeployment = async (req: Request, res: Response, next: NextFun
     
     project.status = 'RUNNING';
     await project.save();
-    notifyStatus(id, 'RUNNING');
+    notifyStatus(id, 'RUNNING', { startedAt: new Date().toISOString() });
 
     res.status(200).json(project);
   } catch (error) {
@@ -112,7 +119,7 @@ export const stopDeployment = async (req: Request, res: Response, next: NextFunc
     
     project.status = 'STOPPED';
     await project.save();
-    notifyStatus(id, 'STOPPED');
+    notifyStatus(id, 'STOPPED', { startedAt: null });
 
     res.status(200).json(project);
   } catch (error: any) {
@@ -121,7 +128,7 @@ export const stopDeployment = async (req: Request, res: Response, next: NextFunc
       const id = req.params.id as string;
       const project = await Deployment.findOneAndUpdate({ deploymentId: id }, { status: 'STOPPED' }, { new: true });
       if (project) {
-        notifyStatus(project.deploymentId, 'STOPPED');
+        notifyStatus(project.deploymentId, 'STOPPED', { startedAt: null });
         res.status(200).json(project);
         return;
       }

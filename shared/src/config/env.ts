@@ -13,6 +13,8 @@ const envSchema = z.object({
   MONGODB_URI: z.string().default('mongodb://localhost:27017/deployhub'),
   PUBLIC_HOST: z.string().default('http://35.154.179.113'),
   ENCRYPTION_KEY: z.string().default('c30f40cf2003c2005a81878d65c30fb90731f87a8b6ebc453ef123d456fef093'),
+  JWT_SECRET: z.string().default('super-secret-jwt-key-change-in-production'),
+  JWT_EXPIRES_IN: z.string().default('24h'),
 });
 
 export const env = envSchema.parse(process.env);

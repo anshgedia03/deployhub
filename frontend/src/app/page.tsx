@@ -24,7 +24,7 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0a0c] text-zinc-300 font-mono">
+    <div className="min-h-screen bg-[#0a0a0c] text-zinc-300 font-sans">
       {/* Sidebar - Old School DevOps feel */}
       <div className="fixed inset-y-0 left-0 w-64 bg-[#111114] border-r border-zinc-800 hidden md:block">
         <div className="p-6 flex items-center gap-3 text-zinc-100">
@@ -49,16 +49,8 @@ export default function Home() {
 
       {/* Main Content */}
       <div className="md:ml-64 p-6 lg:p-10">
-        <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-10 gap-4">
+        <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
           <div />
-          <Button
-            size="lg"
-            className="bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/20 font-bold transition-all"
-            onClick={() => setIsModalOpen(true)}
-          >
-            <Rocket className="w-4 h-4 mr-2" />
-            Deploy Project
-          </Button>
         </header>
 
         {deploymentId ? (
@@ -67,8 +59,8 @@ export default function Home() {
             onClose={() => setDeploymentId(null)}
           />
         ) : (
-          <div className="mt-12">
-            <ProjectsTable />
+          <div className="mt-4">
+            <ProjectsTable onDeployProject={() => setIsModalOpen(true)} />
           </div>
         )}
       </div>

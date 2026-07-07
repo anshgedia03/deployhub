@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useRef, useEffect } from "react";
 import { useDropzone } from "react-dropzone";
 import { UploadCloud, FileArchive, CheckCircle, AlertCircle, Loader2, GitBranch, Terminal } from "lucide-react";
 import {
@@ -32,6 +32,12 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
   const [nameError, setNameError] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStatus, setUploadStatus] = useState<"idle" | "uploading" | "success" | "error">("idle");
+  // Reset states when modal closes
+  useEffect(() => {
+    if (!isOpen) {
+      handleReset();
+    }
+  }, [isOpen]);
 
   const validateProjectName = (val: string) => {
     if (!val) {
@@ -226,9 +232,10 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
               </button>
             </div>
           )}
-
-          {uploadStatus === "idle" && (
-            <div className="space-y-1.5">
+          
+          <div className="space-y-4">
+            {uploadStatus === "idle" && (
+              <div className="space-y-1.5">
               <label htmlFor="projectName" className="text-sm font-medium text-zinc-300">
                 Project Name
               </label>
@@ -249,24 +256,30 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
             </div>
           )}
 
-          {uploadStatus === "idle" && deployType === "zip" && !file && (
-            <div
-              {...getRootProps()}
-              className={`border-2 border-dashed rounded-lg p-10 flex flex-col items-center justify-center transition-colors cursor-pointer
-                ${isDragActive ? "border-blue-500 bg-blue-500/10" : "border-zinc-800 hover:border-zinc-600 bg-zinc-900/50"}
-              `}
-            >
-              <input {...getInputProps()} />
-              <UploadCloud className={`w-12 h-12 mb-4 ${isDragActive ? "text-blue-500" : "text-zinc-500"}`} />
-              <p className="text-sm font-medium text-center">
-                {isDragActive ? "Drop the ZIP file here" : "Drag & drop a ZIP file here, or click to select"}
-              </p>
-              <p className="text-xs text-zinc-500 mt-2">Maximum file size: 100MB</p>
+          {uploadStatus === "idle" && (
+            <div className={`grid transition-[grid-template-rows,opacity] duration-300 ease-in-out ${deployType === "zip" && !file ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}>
+              <div className="overflow-hidden">
+                <div
+                  {...getRootProps()}
+                  className={`border-2 border-dashed rounded-lg p-10 flex flex-col items-center justify-center transition-colors cursor-pointer mt-1
+                    ${isDragActive ? "border-blue-500 bg-blue-500/10" : "border-zinc-800 hover:border-zinc-600 bg-zinc-900/50"}
+                  `}
+                >
+                  <input {...getInputProps()} />
+                  <UploadCloud className={`w-12 h-12 mb-4 ${isDragActive ? "text-blue-500" : "text-zinc-500"}`} />
+                  <p className="text-sm font-medium text-center">
+                    {isDragActive ? "Drop the ZIP file here" : "Drag & drop a ZIP file here, or click to select"}
+                  </p>
+                  <p className="text-xs text-zinc-500 mt-2">Maximum file size: 100MB</p>
+                </div>
+              </div>
             </div>
           )}
 
-          {uploadStatus === "idle" && deployType === "git" && (
-            <div className="space-y-4">
+          {uploadStatus === "idle" && (
+            <div className={`grid transition-[grid-template-rows,opacity] duration-300 ease-in-out ${deployType === "git" ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}>
+              <div className="overflow-hidden">
+                <div className="space-y-4 mt-1">
               <div className="space-y-1.5">
                 <label htmlFor="gitUrl" className="text-sm font-medium text-zinc-300">
                   Git Repository URL
@@ -295,10 +308,12 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
                     className="w-full pl-9 pr-3 py-2 bg-zinc-900 border border-zinc-800 rounded-md text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-zinc-700 transition-colors"
                   />
                   <GitBranch className="absolute left-3 top-2.5 w-4 h-4 text-zinc-500" />
+                  </div>
                 </div>
               </div>
             </div>
-          )}
+          </div>
+        )}
 
           {uploadStatus === "idle" && (
             <div className="border border-zinc-800 rounded-lg overflow-hidden bg-zinc-900/30">
@@ -389,6 +404,7 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
               </div>
             </div>
           )}
+          </div>
         </div>
 
         <div className="flex justify-end gap-3">

@@ -1,4 +1,5 @@
 export * from './models/deployment.model';
+export * from './models/user.model';
 export * from './config/env';
 export * from './services/nginx.service';
 export * from './redis/client';

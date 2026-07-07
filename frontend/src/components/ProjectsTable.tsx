@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { io } from "socket.io-client";
-import { ExternalLink, Play, Square, Trash2, MoreHorizontal, Server, GitBranch, FileArchive, LayoutGrid, List, Triangle, Check, Loader2, X, Terminal, Settings, Star } from "lucide-react";
+import { ExternalLink, Play, Square, Trash2, MoreHorizontal, Server, GitBranch, FileArchive, LayoutGrid, List, Triangle, Check, Loader2, X, Terminal, Settings, Star, Search, Rocket } from "lucide-react";
 import { toast } from "sonner";
 import { getApiUrl, getSocketUrl } from "@/config/api";
 import {
@@ -38,15 +38,39 @@ interface Deployment {
   branch?: string;
   createdAt: string;
 }
+interface ProjectsTableProps {
+  onDeployProject?: () => void;
+}
 
-export function ProjectsTable() {
+export function ProjectsTable({ onDeployProject }: ProjectsTableProps) {
   const [deployments, setDeployments] = useState<Deployment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
+  const [tick, setTick] = useState(0);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
 
-  const fetchDeployments = async () => {
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedQuery(searchQuery);
+    }, 500);
+    return () => clearTimeout(handler);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setTick(t => t + 1);
+    }, 10000); // Trigger a render every 10 seconds to update the Uptime elapsed text locally
+    return () => clearInterval(timer);
+  }, []);
+
+  const fetchDeployments = async (query: string = "", isInitial = false) => {
     try {
-      const res = await fetch(getApiUrl("/projects"));
+      if (isInitial) setInitialLoading(true);
+      setLoading(true);
+      const queryParam = query ? `?search=${encodeURIComponent(query)}` : "";
+      const res = await fetch(`${getApiUrl("/projects")}${queryParam}`);
       if (res.ok) {
         const data = await res.json();
         setDeployments(data);
@@ -55,18 +79,25 @@ export function ProjectsTable() {
       console.error("Failed to fetch deployments", err);
     } finally {
       setLoading(false);
+      setInitialLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchDeployments();
-    
-    // Auto-refresh periodically as a fallback
-    const interval = setInterval(fetchDeployments, 15000);
+    fetchDeployments(debouncedQuery, debouncedQuery === "" && deployments.length === 0);
+  }, [debouncedQuery]);
+
+  useEffect(() => {
 
     // Setup socket to listen for status changes
     const socket = io(getSocketUrl());
-    socket.on("project:status_changed", (data: { deploymentId: string, status: string }) => {
+    socket.on("project:status_changed", (data: { 
+      deploymentId: string; 
+      status: string; 
+      port?: number; 
+      publicUrl?: string; 
+      startedAt?: string; 
+    }) => {
       setDeployments(prev => {
         const existing = prev.find(d => d.deploymentId === data.deploymentId);
         const name = existing ? existing.projectName : data.deploymentId.split('-')[0];
@@ -86,14 +117,19 @@ export function ProjectsTable() {
 
         return prev.map(d => 
           d.deploymentId === data.deploymentId 
-            ? { ...d, status: data.status.toLowerCase() as any } 
+            ? { 
+                ...d, 
+                status: data.status.toLowerCase() as any,
+                port: data.port !== undefined ? data.port : d.port,
+                publicUrl: data.publicUrl !== undefined ? data.publicUrl : d.publicUrl,
+                startedAt: data.startedAt !== undefined ? data.startedAt : d.startedAt
+              } 
             : d
         );
       });
     });
 
     return () => {
-      clearInterval(interval);
       socket.disconnect();
     };
   }, []);
@@ -165,21 +201,7 @@ export function ProjectsTable() {
     }
   };
 
-  if (loading) {
-    return <div className="text-zinc-500 text-sm animate-pulse">Loading deployments...</div>;
-  }
 
-  if (deployments.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center p-12 border border-dashed border-zinc-800 rounded-xl bg-zinc-900/20">
-        <Server className="w-12 h-12 text-zinc-600 mb-4" />
-        <h3 className="text-lg font-bold text-zinc-300 mb-2">No Deployments Found</h3>
-        <p className="text-zinc-500 text-center max-w-md text-sm">
-          You don't have any projects deployed yet. Click "Deploy Project" to get started.
-        </p>
-      </div>
-    );
-  }
 
   const renderActions = (deployment: Deployment, isRunning: boolean, isBuilding: boolean) => (
     <DropdownMenu>
@@ -275,109 +297,149 @@ export function ProjectsTable() {
 
   return (
     <div className="w-full">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-xl font-bold text-zinc-100 flex items-center gap-2">
-          <Server className="w-5 h-5 text-zinc-400" />
-          All Projects
-        </h2>
-        <div className="flex items-center p-1 bg-[#111114] border border-zinc-800 rounded-lg">
-          <button 
-            onClick={() => setViewMode('list')}
-            className={`p-1.5 rounded-md transition-all ${viewMode === 'list' ? 'bg-zinc-800/80 text-zinc-100 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-          >
-            <List className="w-4 h-4" />
-          </button>
-          <button 
-            onClick={() => setViewMode('grid')}
-            className={`p-1.5 rounded-md transition-all ${viewMode === 'grid' ? 'bg-zinc-800/80 text-zinc-100 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-          >
-            <LayoutGrid className="w-4 h-4" />
-          </button>
+      <div className="flex flex-col sm:flex-row items-center gap-1 w-full mb-6">
+        <div className="relative flex-1 w-full">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+          <input
+            type="text"
+            placeholder="Search Projects.."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full bg-[#111114] border border-zinc-800 rounded-lg py-2 pl-9 pr-4 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all"
+          />
+        </div>
+        
+        <div className="flex items-center gap-1 w-full sm:w-auto">
+          <div className="flex items-center p-1 bg-[#111114] border border-zinc-800 rounded-lg shrink-0">
+            <button 
+              onClick={() => setViewMode('list')}
+              className={`p-1.5 rounded-md transition-all ${viewMode === 'list' ? 'bg-zinc-800/80 text-zinc-100 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+            >
+              <List className="w-4 h-4" />
+            </button>
+            <button 
+              onClick={() => setViewMode('grid')}
+              className={`p-1.5 rounded-md transition-all ${viewMode === 'grid' ? 'bg-zinc-800/80 text-zinc-100 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+            >
+              <LayoutGrid className="w-4 h-4" />
+            </button>
+          </div>
+          
+          {onDeployProject && (
+            <Button
+              className="bg-zinc-100 hover:bg-white text-black shadow-lg font-semibold transition-all shrink-0 px-4 py-2 h-auto text-sm"
+              onClick={onDeployProject}
+            >
+              Deploy Project
+            </Button>
+          )}
         </div>
       </div>
 
-      {viewMode === 'list' ? (
+      {initialLoading ? (
+        <div className="flex flex-col items-center justify-center p-12 border border-zinc-800 rounded-xl bg-zinc-900/10 animate-pulse text-zinc-500 text-sm">
+          Loading deployments...
+        </div>
+      ) : deployments.length === 0 ? (
+        searchQuery ? (
+          <div className="flex flex-col items-center justify-center p-12 border border-dashed border-zinc-800 rounded-xl bg-zinc-900/20">
+            <Search className="w-12 h-12 text-zinc-600 mb-4" />
+            <h3 className="text-lg font-bold text-zinc-300 mb-2">No Results Found</h3>
+            <p className="text-zinc-500 text-center max-w-md text-sm">
+              We couldn't find any projects matching "{searchQuery}". Try searching for something else.
+            </p>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center p-12 border border-dashed border-zinc-800 rounded-xl bg-zinc-900/20">
+            <Server className="w-12 h-12 text-zinc-600 mb-4" />
+            <h3 className="text-lg font-bold text-zinc-300 mb-2">No Deployments Found</h3>
+            <p className="text-zinc-500 text-center max-w-md text-sm">
+              You don't have any projects deployed yet. Click "Deploy Project" to get started.
+            </p>
+          </div>
+        )
+      ) : viewMode === 'list' ? (
         <div className="rounded-md border border-zinc-800 bg-[#111114]">
           <Table>
-        <TableHeader>
-          <TableRow className="border-zinc-800 hover:bg-zinc-900/50">
-            <TableHead className="text-zinc-400 font-medium w-[20%]">Project Name</TableHead>
-            <TableHead className="text-zinc-400 font-medium w-[15%]">Status</TableHead>
-            <TableHead className="text-zinc-400 font-medium w-[10%]">Port</TableHead>
-            <TableHead className="text-zinc-400 font-medium w-[20%]">Method</TableHead>
-            <TableHead className="text-zinc-400 font-medium w-[15%]">Uptime</TableHead>
-            <TableHead className="text-zinc-400 font-medium w-[15%]">Created</TableHead>
-            <TableHead className="text-zinc-400 font-medium w-[5%] text-right">Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {deployments.map((deployment) => {
-            const isRunning = deployment.status.toLowerCase() === 'running';
-            const isBuilding = deployment.status.toLowerCase() === 'building';
-
-            return (
-              <TableRow key={deployment.deploymentId} className="border-zinc-800/80 hover:bg-zinc-900/30">
-                <TableCell className="font-medium text-zinc-100">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-zinc-800/50 text-zinc-400 rounded-md">
-                      <Server className="h-4 w-4" />
-                    </div>
-                    <span className="truncate max-w-[150px]" title={deployment.projectName || deployment.deploymentId}>
-                      {deployment.projectName || deployment.deploymentId.split('-')[0]}
-                    </span>
-                  </div>
-                </TableCell>
-                <TableCell>{getStatusBadge(deployment.status)}</TableCell>
-                <TableCell className="text-zinc-400 font-mono text-sm">
-                  {deployment.port ? (
-                    <span className="flex items-center gap-1">
-                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
-                      {deployment.port}
-                    </span>
-                  ) : (
-                    <span className="text-zinc-600">-</span>
-                  )}
-                </TableCell>
-                <TableCell>
-                  {deployment.gitUrl ? (
-                    <a 
-                      href={deployment.gitUrl.replace('.git', '')} 
-                      target="_blank" 
-                      rel="noopener noreferrer" 
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-zinc-800/60 text-zinc-300 text-xs font-medium hover:bg-zinc-700/60 transition-colors"
-                    >
-                      <GitBranch className="w-3.5 h-3.5" />
-                      {deployment.gitUrl.replace('https://github.com/', '').replace('.git', '')}
-                    </a>
-                  ) : (
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-zinc-800/40 text-zinc-400 text-xs font-medium">
-                      <FileArchive className="w-3.5 h-3.5" />
-                      ZIP File
-                    </span>
-                  )}
-                </TableCell>
-                <TableCell>
-                  {deployment.startedAt ? (
-                    <span className="inline-flex items-center gap-1.5 text-zinc-300 font-medium text-xs">
-                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                      Up {formatDistanceToNow(new Date(deployment.startedAt))}
-                    </span>
-                  ) : (
-                    <span className="text-zinc-600">-</span>
-                  )}
-                </TableCell>
-                <TableCell className="text-zinc-500 text-sm">
-                  {formatDistanceToNow(new Date(deployment.createdAt), { addSuffix: true })}
-                </TableCell>
-                <TableCell className="text-right">
-                  {renderActions(deployment, isRunning, isBuilding)}
-                </TableCell>
+            <TableHeader>
+              <TableRow className="border-zinc-800 hover:bg-zinc-900/50">
+                <TableHead className="text-zinc-400 font-medium w-[20%]">Project Name</TableHead>
+                <TableHead className="text-zinc-400 font-medium w-[15%]">Status</TableHead>
+                <TableHead className="text-zinc-400 font-medium w-[10%]">Port</TableHead>
+                <TableHead className="text-zinc-400 font-medium w-[20%]">Method</TableHead>
+                <TableHead className="text-zinc-400 font-medium w-[15%]">Uptime</TableHead>
+                <TableHead className="text-zinc-400 font-medium w-[15%]">Created</TableHead>
+                <TableHead className="text-zinc-400 font-medium w-[5%] text-right">Actions</TableHead>
               </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
-      </div>
+            </TableHeader>
+            <TableBody>
+              {deployments.map((deployment) => {
+                const isRunning = deployment.status.toLowerCase() === 'running';
+                const isBuilding = deployment.status.toLowerCase() === 'building';
+
+                return (
+                  <TableRow key={deployment.deploymentId} className="border-zinc-800/80 hover:bg-zinc-900/30">
+                    <TableCell className="font-medium text-zinc-100">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-zinc-800/50 text-zinc-400 rounded-md">
+                          <Server className="h-4 w-4" />
+                        </div>
+                        <span className="truncate max-w-[150px]" title={deployment.projectName || deployment.deploymentId}>
+                          {deployment.projectName || deployment.deploymentId.split('-')[0]}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell>{getStatusBadge(deployment.status)}</TableCell>
+                    <TableCell className="text-zinc-400 font-sans text-sm">
+                      {deployment.port ? (
+                        <span className="flex items-center gap-1">
+                          <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
+                          {deployment.port}
+                        </span>
+                      ) : (
+                        <span className="text-zinc-600">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {deployment.gitUrl ? (
+                        <a 
+                          href={deployment.gitUrl.replace('.git', '')} 
+                          target="_blank" 
+                          rel="noopener noreferrer" 
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-zinc-800/60 text-zinc-300 text-xs font-medium hover:bg-zinc-700/60 transition-colors"
+                        >
+                          <GitBranch className="w-3.5 h-3.5" />
+                          {deployment.gitUrl.replace('https://github.com/', '').replace('.git', '')}
+                        </a>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-zinc-800/40 text-zinc-400 text-xs font-medium">
+                          <FileArchive className="w-3.5 h-3.5" />
+                          ZIP File
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {deployment.startedAt ? (
+                        <span className="inline-flex items-center gap-1.5 text-zinc-300 font-medium text-xs">
+                          <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                          Up {formatDistanceToNow(new Date(deployment.startedAt))}
+                        </span>
+                      ) : (
+                        <span className="text-zinc-600">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-zinc-500 text-sm">
+                      {formatDistanceToNow(new Date(deployment.createdAt), { addSuffix: true })}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {renderActions(deployment, isRunning, isBuilding)}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
           {deployments.map(deployment => {
@@ -437,7 +499,7 @@ export function ProjectsTable() {
                     {formatDistanceToNow(new Date(deployment.createdAt))} 
                     {deployment.branch && (
                       <>
-                        on <GitBranch className="w-3.5 h-3.5 text-zinc-600" /> <span className="font-mono text-zinc-400">{deployment.branch}</span>
+                        on <GitBranch className="w-3.5 h-3.5 text-zinc-600" /> <span className="font-sans text-zinc-400">{deployment.branch}</span>
                       </>
                     )}
                     {deployment.port && (
