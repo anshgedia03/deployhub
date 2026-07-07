@@ -34,7 +34,7 @@ interface Deployment {
   port?: number;
   publicUrl?: string;
   gitUrl?: string;
-  commitMessage?: string;
+  startedAt?: string;
   branch?: string;
   createdAt: string;
 }
@@ -305,7 +305,7 @@ export function ProjectsTable() {
             <TableHead className="text-zinc-400 font-medium w-[15%]">Status</TableHead>
             <TableHead className="text-zinc-400 font-medium w-[10%]">Port</TableHead>
             <TableHead className="text-zinc-400 font-medium w-[20%]">Method</TableHead>
-            <TableHead className="text-zinc-400 font-medium w-[15%]">Latest Commit</TableHead>
+            <TableHead className="text-zinc-400 font-medium w-[15%]">Uptime</TableHead>
             <TableHead className="text-zinc-400 font-medium w-[15%]">Created</TableHead>
             <TableHead className="text-zinc-400 font-medium w-[5%] text-right">Actions</TableHead>
           </TableRow>
@@ -357,9 +357,10 @@ export function ProjectsTable() {
                   )}
                 </TableCell>
                 <TableCell>
-                  {deployment.commitMessage ? (
-                    <span className="text-[11px] text-zinc-500 font-mono truncate max-w-[200px] inline-block" title={deployment.commitMessage}>
-                      {deployment.commitMessage}
+                  {deployment.startedAt ? (
+                    <span className="inline-flex items-center gap-1.5 text-zinc-300 font-medium text-xs">
+                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                      Up {formatDistanceToNow(new Date(deployment.startedAt))}
                     </span>
                   ) : (
                     <span className="text-zinc-600">-</span>
@@ -422,8 +423,15 @@ export function ProjectsTable() {
                 </div>
 
                 <div className="mt-auto flex flex-col gap-1.5 text-[13px]">
-                  <div className="text-zinc-200 font-medium truncate">
-                    {deployment.commitMessage || "No Production Deployment"}
+                  <div className="text-zinc-300 font-medium flex items-center gap-1.5">
+                    {deployment.startedAt ? (
+                      <>
+                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        Up {formatDistanceToNow(new Date(deployment.startedAt))}
+                      </>
+                    ) : (
+                      <span className="text-zinc-500">Not Running</span>
+                    )}
                   </div>
                   <div className="text-zinc-500 flex items-center gap-1.5">
                     {formatDistanceToNow(new Date(deployment.createdAt))} 

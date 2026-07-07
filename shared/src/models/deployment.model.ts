@@ -10,7 +10,6 @@ export interface IDeployment extends Document {
   envVars?: string;
   gitUrl?: string;
   branch?: string;
-  commitMessage?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -31,7 +30,6 @@ const DeploymentSchema: Schema = new Schema(
     envVars: { type: String },
     gitUrl: { type: String },
     branch: { type: String },
-    commitMessage: { type: String },
   },
   { timestamps: true }
 );

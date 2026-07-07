@@ -10,7 +10,29 @@ const docker = new Docker();
 export const getProjects = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const projects = await Deployment.find().sort({ createdAt: -1 });
-    res.status(200).json(projects);
+    
+    const projectsWithUptime = await Promise.all(
+      projects.map(async (project) => {
+        let startedAt = '';
+        if (project.containerId && project.status === 'RUNNING') {
+          try {
+            const container = docker.getContainer(project.containerId);
+            const data = await container.inspect();
+            if (data.State && data.State.Running && data.State.StartedAt) {
+              startedAt = data.State.StartedAt;
+            }
+          } catch (e) {
+            // Container might have been deleted/recreated or offline
+          }
+        }
+        
+        // Convert to plain object and attach startedAt
+        const obj = project.toObject();
+        return { ...obj, startedAt };
+      })
+    );
+
+    res.status(200).json(projectsWithUptime);
   } catch (error) {
     next(error);
   }

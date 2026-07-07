@@ -64,13 +64,14 @@ export class GitDeployService {
 
       appendLog(`\r\n[INFO] Git clone completed successfully. Moving files...\r\n`);
 
-      let commitMessage = '';
-      try {
-        const stdout = execSync('git log -1 --pretty=format:"%h - %s"', { cwd: tempPath, encoding: 'utf-8' });
-        commitMessage = stdout.trim();
-        appendLog(`[INFO] Last commit: ${commitMessage}\r\n`);
-      } catch (e) {
-        Logger.error('GitDeployService', 'Failed to get commit message', e);
+      // Clean up existing extractPath except build.log to prevent ENOTEMPTY on folder merge
+      if (fs.existsSync(extractPath)) {
+        const existingFiles = fs.readdirSync(extractPath);
+        for (const file of existingFiles) {
+          if (file !== 'build.log') {
+            fs.rmSync(path.join(extractPath, file), { recursive: true, force: true });
+          }
+        }
       }
 
       // Move files from tempPath to extractPath
@@ -81,7 +82,7 @@ export class GitDeployService {
       fs.rmdirSync(tempPath);
 
       // 3. Update state to VALIDATING
-      await Deployment.updateOne({ deploymentId }, { status: 'VALIDATING', commitMessage });
+      await Deployment.updateOne({ deploymentId }, { status: 'VALIDATING' });
       notifyStatus(deploymentId, 'VALIDATING');
       appendLog(`[INFO] Validating repository structure...\r\n`);
 
