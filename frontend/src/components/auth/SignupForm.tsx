@@ -50,7 +50,7 @@ export default function SignupForm() {
       // Redirect to login
       toast.success("Account created successfully! Please log in.");
       setTimeout(() => {
-        router.push("/login");
+        window.location.href = "/login";
       }, 500);
       
     } catch (err: any) {

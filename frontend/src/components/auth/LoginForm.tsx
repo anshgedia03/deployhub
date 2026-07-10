@@ -48,7 +48,7 @@ export default function LoginForm() {
       // Redirect to dashboard
       toast.success("Login successful!");
       setTimeout(() => {
-        router.push("/");
+        window.location.href = "/";
       }, 500);
       
     } catch (err: any) {
