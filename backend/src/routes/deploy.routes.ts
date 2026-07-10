@@ -2,7 +2,8 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { handleDeployUpload, handleGitDeploy } from '../controllers/deploy.controller';
 import { uploadMiddleware } from '../middlewares/upload.middleware';
-import { Deployment, AppError, encrypt } from '@deployhub/shared';
+import { requireAuth } from '../middlewares/auth.middleware';
+import { Deployment, AppError, encrypt, User } from '@deployhub/shared';
 import { notifyStatus } from '../utils/notify';
 import Docker from 'dockerode';
 import fs from 'fs';
@@ -16,6 +17,9 @@ declare module 'express-serve-static-core' {
     deploymentId?: string;
   }
 }
+
+// Protect all deploy routes
+router.use(requireAuth);
 
 const initDeployment = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -56,8 +60,21 @@ const initDeployment = async (req: Request, res: Response, next: NextFunction) =
     const envVarsRaw = req.body.envVars;
     const encryptedEnv = envVarsRaw ? encrypt(envVarsRaw) : undefined;
     
+    // Determine organizationId
+    const currentUser = await User.findById(req.user!.id);
+    let organizationId = undefined;
+    if (currentUser) {
+      if (currentUser.accountType === 'organization') {
+        organizationId = currentUser._id.toString();
+      } else if (currentUser.accountType === 'employee') {
+        organizationId = currentUser.organizationId?.toString();
+      }
+    }
+    
     await Deployment.create({ 
-      deploymentId, 
+      deploymentId,
+      userId: req.user!.id,
+      organizationId,
       projectName, 
       status: initialStatus,
       envVars: encryptedEnv,

@@ -4,7 +4,10 @@ export interface IUser extends Document {
   username: string;
   email: string;
   passwordHash: string;
-  accountType: 'organization' | 'individual';
+  accountType: 'organization' | 'individual' | 'employee';
+  organizationName?: string;
+  organizationId?: mongoose.Types.ObjectId;
+  role?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -31,8 +34,20 @@ const UserSchema = new Schema<IUser>(
     },
     accountType: {
       type: String,
-      enum: ['organization', 'individual'],
+      enum: ['organization', 'individual', 'employee'],
       required: true,
+    },
+    organizationId: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+    },
+    role: {
+      type: String,
+      trim: true,
+    },
+    organizationName: {
+      type: String,
+      trim: true,
     },
   },
   {

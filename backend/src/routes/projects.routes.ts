@@ -1,7 +1,11 @@
 import { Router } from 'express';
 import { getProjects, startDeployment, stopDeployment, deleteDeployment, getDeploymentLogs } from '../controllers/projects.controller';
+import { requireAuth } from '../middlewares/auth.middleware';
 
 const router = Router();
+
+// Protect all projects routes
+router.use(requireAuth);
 
 router.get('/', getProjects);
 router.get('/:id/logs', getDeploymentLogs);

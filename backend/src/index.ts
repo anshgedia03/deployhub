@@ -12,6 +12,11 @@ const startServer = async () => {
     const httpServer = createServer(app);
     const io = new Server(httpServer, {
       cors: { origin: '*' },
+      cookie: {
+        name: "io",
+        sameSite: "lax",
+        secure: false,
+      }
     });
 
     const redisSubscriber = new Redis({ host: env.REDIS_HOST, port: env.REDIS_PORT });

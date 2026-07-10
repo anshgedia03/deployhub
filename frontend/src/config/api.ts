@@ -27,3 +27,16 @@ export const getSocketUrl = (): string => {
   }
   return `http://${typeof window !== 'undefined' ? window.location.hostname : 'localhost'}:4000`;
 };
+
+/**
+ * Returns the authorization header with the JWT token from localStorage.
+ */
+export const getAuthHeaders = (): Record<string, string> => {
+  if (typeof window !== "undefined") {
+    const token = localStorage.getItem("token");
+    if (token) {
+      return { Authorization: `Bearer ${token}` };
+    }
+  }
+  return {};
+};

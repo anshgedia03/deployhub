@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import Docker from 'dockerode';
 import fs from 'fs';
 import path from 'path';
-import { Deployment, NotFoundError, removeNginxConfig } from '@deployhub/shared';
+import { Deployment, NotFoundError, removeNginxConfig, User } from '@deployhub/shared';
 import { notifyStatus } from '../utils/notify';
 
 const docker = new Docker();
@@ -11,9 +11,19 @@ export const getProjects = async (req: Request, res: Response, next: NextFunctio
   try {
     const { search } = req.query;
     
-    let query = {};
+    const currentUser = await User.findById(req.user!.id);
+    let query: any = { $or: [{ userId: req.user!.id }] };
+    
+    if (currentUser) {
+      if (currentUser.accountType === 'organization') {
+        query.$or.push({ organizationId: currentUser._id.toString() });
+      } else if (currentUser.accountType === 'employee' && currentUser.organizationId) {
+        query.$or.push({ organizationId: currentUser.organizationId.toString() });
+      }
+    }
+
     if (search && typeof search === 'string') {
-      query = { projectName: { $regex: search, $options: 'i' } };
+      query.projectName = { $regex: search, $options: 'i' };
     }
 
     const projects = await Deployment.find(query).sort({ createdAt: -1 });
@@ -45,10 +55,30 @@ export const getProjects = async (req: Request, res: Response, next: NextFunctio
   }
 };
 
+const getAuthorizedProject = async (deploymentId: string, reqUserId: string) => {
+  const project = await Deployment.findOne({ deploymentId });
+  if (!project) return null;
+  
+  if (project.userId === reqUserId) return project;
+  
+  const currentUser = await User.findById(reqUserId);
+  if (currentUser) {
+    const orgId = currentUser.accountType === 'organization' ? currentUser._id.toString() : currentUser.organizationId?.toString();
+    if (orgId && project.organizationId === orgId) return project;
+  }
+  
+  return null;
+};
+
 export const getDeploymentLogs = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
     const { cursor = 0, limit = 50000 } = req.query;
+
+    const project = await getAuthorizedProject(id, req.user!.id);
+    if (!project) {
+      throw new NotFoundError('Project not found');
+    }
 
     const extractPath = path.resolve(process.cwd(), `deployments/${id}`);
     const logFilePath = path.join(extractPath, 'build.log');
@@ -88,7 +118,7 @@ export const getDeploymentLogs = async (req: Request, res: Response, next: NextF
 export const startDeployment = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const id = req.params.id as string;
-    const project = await Deployment.findOne({ deploymentId: id });
+    const project = await getAuthorizedProject(id, req.user!.id);
     if (!project || !project.containerId) {
       throw new NotFoundError('Project or container not found');
     }
@@ -109,7 +139,7 @@ export const startDeployment = async (req: Request, res: Response, next: NextFun
 export const stopDeployment = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const id = req.params.id as string;
-    const project = await Deployment.findOne({ deploymentId: id });
+    const project = await getAuthorizedProject(id, req.user!.id);
     if (!project || !project.containerId) {
       throw new NotFoundError('Project or container not found');
     }
@@ -126,8 +156,10 @@ export const stopDeployment = async (req: Request, res: Response, next: NextFunc
     // Ignore error if container is already stopped
     if (error && error.statusCode === 304) {
       const id = req.params.id as string;
-      const project = await Deployment.findOneAndUpdate({ deploymentId: id }, { status: 'STOPPED' }, { new: true });
+      const project = await getAuthorizedProject(id, req.user!.id);
       if (project) {
+        project.status = 'STOPPED';
+        await project.save();
         notifyStatus(project.deploymentId, 'STOPPED', { startedAt: null });
         res.status(200).json(project);
         return;
@@ -140,7 +172,7 @@ export const stopDeployment = async (req: Request, res: Response, next: NextFunc
 export const deleteDeployment = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const id = req.params.id as string;
-    const project = await Deployment.findOne({ deploymentId: id });
+    const project = await getAuthorizedProject(id, req.user!.id);
     if (!project) {
       throw new NotFoundError('Project not found');
     }

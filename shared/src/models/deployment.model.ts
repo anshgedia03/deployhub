@@ -2,6 +2,7 @@ import mongoose, { Document, Schema } from 'mongoose';
 
 export interface IDeployment extends Document {
   deploymentId: string;
+  userId: string;
   projectName: string;
   status: 'UPLOADING' | 'CLONING' | 'EXTRACTING' | 'VALIDATING' | 'BUILDING' | 'STARTING' | 'RUNNING' | 'FAILED' | 'STOPPED' | 'DELETED';
   containerId?: string;
@@ -10,6 +11,7 @@ export interface IDeployment extends Document {
   envVars?: string;
   gitUrl?: string;
   branch?: string;
+  organizationId?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -17,12 +19,14 @@ export interface IDeployment extends Document {
 const DeploymentSchema: Schema = new Schema(
   {
     deploymentId: { type: String, required: true, unique: true },
+    userId: { type: String, required: true },
     projectName: { type: String, required: true, unique: true },
     status: { 
       type: String, 
       enum: ['UPLOADING', 'CLONING', 'EXTRACTING', 'VALIDATING', 'BUILDING', 'STARTING', 'RUNNING', 'FAILED', 'STOPPED', 'DELETED'], 
       default: 'UPLOADING' 
     },
+    organizationId: { type: String },
 
     containerId: { type: String },
     port: { type: Number },

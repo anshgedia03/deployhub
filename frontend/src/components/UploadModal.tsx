@@ -13,7 +13,7 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { getApiUrl } from "@/config/api";
+import { getApiUrl, getAuthHeaders } from "@/config/api";
 
 interface UploadModalProps {
   isOpen: boolean;
@@ -92,6 +92,11 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
     try {
       const xhr = new XMLHttpRequest();
       xhr.open("POST", getApiUrl("/deploy"), true);
+      
+      const authHeaders = getAuthHeaders();
+      if (authHeaders.Authorization) {
+        xhr.setRequestHeader("Authorization", authHeaders.Authorization);
+      }
 
       xhr.upload.onprogress = (event) => {
         if (event.lengthComputable) {
@@ -150,6 +155,7 @@ export function UploadModal({ isOpen, onClose }: UploadModalProps) {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...getAuthHeaders()
         },
         body: JSON.stringify({
           projectName: projectName.trim(),

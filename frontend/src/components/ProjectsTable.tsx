@@ -5,7 +5,7 @@ import { formatDistanceToNow } from "date-fns";
 import { io } from "socket.io-client";
 import { ExternalLink, Play, Square, Trash2, MoreHorizontal, Server, GitBranch, FileArchive, LayoutGrid, List, Triangle, Check, Loader2, X, Terminal, Settings, Star, Search, Rocket } from "lucide-react";
 import { toast } from "sonner";
-import { getApiUrl, getSocketUrl } from "@/config/api";
+import { getApiUrl, getSocketUrl, getAuthHeaders } from "@/config/api";
 import {
   Table,
   TableBody,
@@ -70,7 +70,9 @@ export function ProjectsTable({ onDeployProject }: ProjectsTableProps) {
       if (isInitial) setInitialLoading(true);
       setLoading(true);
       const queryParam = query ? `?search=${encodeURIComponent(query)}` : "";
-      const res = await fetch(`${getApiUrl("/projects")}${queryParam}`);
+      const res = await fetch(`${getApiUrl("/projects")}${queryParam}`, {
+        headers: getAuthHeaders()
+      });
       if (res.ok) {
         const data = await res.json();
         setDeployments(data);
@@ -172,14 +174,14 @@ export function ProjectsTable({ onDeployProject }: ProjectsTableProps) {
   const handleAction = async (action: string, id: string) => {
     try {
       if (action === 'delete') {
-        const res = await fetch(getApiUrl(`/projects/${id}`), { method: 'DELETE' });
+        const res = await fetch(getApiUrl(`/projects/${id}`), { method: 'DELETE', headers: getAuthHeaders() });
         if (res.ok) {
           toast.success('Deletion request sent.');
         } else {
           toast.error('Failed to trigger deletion.');
         }
       } else if (action === 'start' || action === 'stop') {
-        const res = await fetch(getApiUrl(`/projects/${id}/${action}`), { method: 'POST' });
+        const res = await fetch(getApiUrl(`/projects/${id}/${action}`), { method: 'POST', headers: getAuthHeaders() });
         if (res.ok) {
           toast.success(`Request to ${action} container sent.`);
         } else {

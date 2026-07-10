@@ -20,6 +20,7 @@ export const errorHandler = (
   Logger.error('Backend', 'Unhandled server error', err);
   res.status(500).json({
     status: 'error',
-    message: 'Internal server error',
+    message: err.message || 'Internal server error',
+    stack: err.stack,
   });
 };

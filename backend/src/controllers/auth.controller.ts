@@ -11,17 +11,22 @@ const isValidEmail = (email: string) => {
 
 export const registerUser = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { username, email, password, confirmPassword, accountType } = req.body;
+    const { username, email, password, accountType, organizationName } = req.body;
 
     // 1. Check if all required fields are provided
-    if (!username || !email || !password || !confirmPassword || !accountType) {
+    if (!username || !email || !password || !accountType) {
       res.status(400).json({ error: 'All fields are required' });
       return;
     }
 
-    // 2. Validate Account Type
+    // 2. Validate Account Type and specific fields
     if (accountType !== 'organization' && accountType !== 'individual') {
       res.status(400).json({ error: 'Invalid account type. Must be organization or individual.' });
+      return;
+    }
+    
+    if (accountType === 'organization' && !organizationName) {
+      res.status(400).json({ error: 'Organization name is required for organization accounts.' });
       return;
     }
 
@@ -31,11 +36,7 @@ export const registerUser = async (req: Request, res: Response, next: NextFuncti
       return;
     }
 
-    // 4. Validate Passwords Match
-    if (password !== confirmPassword) {
-      res.status(400).json({ error: 'Passwords do not match' });
-      return;
-    }
+    // 4. Validate Passwords Match (Removed as confirmPassword is not used in UI)
 
     // 5. Password Strength Validation (Basic)
     if (password.length < 8) {
@@ -69,6 +70,7 @@ export const registerUser = async (req: Request, res: Response, next: NextFuncti
       email: email.toLowerCase(),
       passwordHash,
       accountType,
+      organizationName: accountType === 'organization' ? organizationName.trim() : undefined,
     });
 
     await newUser.save();
@@ -81,6 +83,7 @@ export const registerUser = async (req: Request, res: Response, next: NextFuncti
         username: newUser.username,
         email: newUser.email,
         accountType: newUser.accountType,
+        organizationName: newUser.organizationName,
       },
     });
   } catch (error) {
@@ -114,10 +117,11 @@ export const loginUser = async (req: Request, res: Response, next: NextFunction)
     }
 
     // 4. Generate JWT Token
+    const secret: string = (env.JWT_SECRET as unknown as string) || 'secret';
     const token = jwt.sign(
       { id: user._id, accountType: user.accountType },
-      env.JWT_SECRET,
-      { expiresIn: env.JWT_EXPIRES_IN }
+      secret,
+      { expiresIn: env.JWT_EXPIRES_IN as any }
     );
 
     // 5. Send Response
@@ -130,6 +134,34 @@ export const loginUser = async (req: Request, res: Response, next: NextFunction)
         email: user.email,
         accountType: user.accountType,
       },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getCurrentUser = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    if (!req.user || !req.user.id) {
+      res.status(401).json({ error: 'Not authenticated' });
+      return;
+    }
+
+    const user = await User.findById(req.user.id).select('-passwordHash');
+    
+    if (!user) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+
+    res.status(200).json({
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        accountType: user.accountType,
+        organizationName: user.organizationName,
+      }
     });
   } catch (error) {
     next(error);
