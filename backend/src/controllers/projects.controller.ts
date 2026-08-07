@@ -13,14 +13,17 @@ export const getProjects = async (req: Request, res: Response, next: NextFunctio
     const { search } = req.query;
     
     const currentUser = await User.findById(req.user!.id);
-    let query: any = { $or: [{ userId: req.user!.id }] };
-    
+    let query: any = {};
     if (currentUser) {
-      if (currentUser.accountType === 'organization') {
-        query.$or.push({ organizationId: currentUser._id.toString() });
-      } else if (currentUser.accountType === 'employee') {
-        query.$or.push({ 'accessControl.employeeId': currentUser._id });
+      if (currentUser.accountType === 'employee') {
+        query = { 'accessControl.employeeId': currentUser._id };
+      } else if (currentUser.accountType === 'organization') {
+        query = { $or: [{ userId: req.user!.id }, { organizationId: currentUser._id.toString() }] };
+      } else {
+        query = { userId: req.user!.id };
       }
+    } else {
+      query = { userId: req.user!.id };
     }
 
     if (search && typeof search === 'string') {
@@ -60,18 +63,20 @@ const getAuthorizedProject = async (deploymentId: string, reqUserId: string) => 
   const project = await Deployment.findOne({ deploymentId });
   if (!project) return null;
   
-  if (project.userId === reqUserId) return project;
-  
   const currentUser = await User.findById(reqUserId);
-  if (currentUser) {
-    const orgId = currentUser.accountType === 'organization' ? currentUser._id.toString() : currentUser.organizationId?.toString();
-    if (orgId && project.organizationId === orgId) {
-      if (currentUser.accountType === 'employee') {
-        const hasAccess = project.accessControl?.some((ac: any) => ac.employeeId.toString() === currentUser._id.toString());
-        if (!hasAccess) return null;
-      }
-      return project;
+  if (!currentUser) return null;
+
+  if (currentUser.accountType !== 'employee') {
+    if (project.userId === reqUserId) return project;
+  }
+
+  const orgId = currentUser.accountType === 'organization' ? currentUser._id.toString() : currentUser.organizationId?.toString();
+  if (orgId && project.organizationId === orgId) {
+    if (currentUser.accountType === 'employee') {
+      const hasAccess = project.accessControl?.some((ac: any) => ac.employeeId.toString() === currentUser._id.toString());
+      if (!hasAccess) return null;
     }
+    return project;
   }
   
   return null;

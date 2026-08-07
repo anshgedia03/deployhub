@@ -54,6 +54,16 @@ export function ProjectsTable({ onDeployProject, user }: ProjectsTableProps) {
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [redeployProject, setRedeployProject] = useState<Deployment | null>(null);
 
+  const hasFullAccess = (deployment: Deployment) => {
+    if (!user) return false;
+    if (user.accountType === 'organization') return true;
+    if (user.accountType === 'employee') {
+      const access = deployment.accessControl?.find((ac: any) => ac.employeeId === user._id);
+      return access?.accessLevel === 'full';
+    }
+    return true; // Fallback for personal accounts
+  };
+
   useEffect(() => {
     const handler = setTimeout(() => {
       setDebouncedQuery(searchQuery);
@@ -249,7 +259,7 @@ export function ProjectsTable({ onDeployProject, user }: ProjectsTableProps) {
             <Square className="mr-3 h-4 w-4" />
             <span className="font-medium">Stop Server</span>
           </DropdownMenuItem>
-          {deployment.gitUrl && (
+          {deployment.gitUrl && hasFullAccess(deployment) && (
             <DropdownMenuItem 
             className="rounded-lg px-3 py-2 hover:bg-zinc-800/80 hover:text-zinc-100 cursor-pointer transition-colors"
             onClick={() => setRedeployProject(deployment)}
@@ -273,13 +283,15 @@ export function ProjectsTable({ onDeployProject, user }: ProjectsTableProps) {
             <Terminal className="mr-3 h-4 w-4 text-zinc-400" />
             <span className="font-medium">View Logs</span>
           </DropdownMenuItem>
-          <DropdownMenuItem 
-            className="rounded-lg px-3 py-2 hover:bg-zinc-800/80 hover:text-zinc-100 cursor-pointer transition-colors"
-            onClick={() => toast.info('Settings coming soon')}
-          >
-            <Settings className="mr-3 h-4 w-4 text-zinc-400" />
-            <span className="font-medium">Settings</span>
-          </DropdownMenuItem>
+          {hasFullAccess(deployment) && (
+            <DropdownMenuItem 
+              className="rounded-lg px-3 py-2 hover:bg-zinc-800/80 hover:text-zinc-100 cursor-pointer transition-colors"
+              onClick={() => toast.info('Settings coming soon')}
+            >
+              <Settings className="mr-3 h-4 w-4 text-zinc-400" />
+              <span className="font-medium">Settings</span>
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem 
             className="rounded-lg px-3 py-2 hover:bg-yellow-500/10 hover:text-yellow-400 cursor-pointer transition-colors"
             onClick={() => toast.success('Added to favorites')}
@@ -300,13 +312,15 @@ export function ProjectsTable({ onDeployProject, user }: ProjectsTableProps) {
 
         <DropdownMenuSeparator className="bg-zinc-800/60 my-2" />
         
-        <DropdownMenuItem 
-          className="rounded-lg px-3 py-2 bg-red-500/5 text-red-500 hover:bg-red-500/15 focus:bg-red-500/20 focus:text-red-500 cursor-pointer transition-colors"
-          onClick={() => handleAction('delete', deployment.deploymentId)}
-        >
-          <Trash2 className="mr-3 h-4 w-4" />
-          <span className="font-medium">Delete Project</span>
-        </DropdownMenuItem>
+        {hasFullAccess(deployment) && (
+          <DropdownMenuItem 
+            className="rounded-lg px-3 py-2 bg-red-500/5 text-red-500 hover:bg-red-500/15 focus:bg-red-500/20 focus:text-red-500 cursor-pointer transition-colors"
+            onClick={() => handleAction('delete', deployment.deploymentId)}
+          >
+            <Trash2 className="mr-3 h-4 w-4" />
+            <span className="font-medium">Delete Project</span>
+          </DropdownMenuItem>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
