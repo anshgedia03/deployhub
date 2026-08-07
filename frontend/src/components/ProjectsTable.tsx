@@ -38,6 +38,7 @@ interface Deployment {
   startedAt?: string;
   branch?: string;
   createdAt: string;
+  accessControl?: { employeeId: string; accessLevel: 'full' | 'limited' }[];
 }
 interface ProjectsTableProps {
   onDeployProject?: () => void;
