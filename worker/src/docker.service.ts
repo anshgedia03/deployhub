@@ -128,9 +128,20 @@ export const runContainer = async (
     console.warn(`Failed to inspect image ${deploymentId}, falling back to port 8080`);
   }
 
+  const containerName = `deployx-${deploymentId}`;
+
+  // Ensure any existing container with this name is removed
+  try {
+    const existingContainer = docker.getContainer(containerName);
+    await existingContainer.stop().catch(() => {});
+    await existingContainer.remove({ force: true }).catch(() => {});
+  } catch (err) {
+    // Ignore errors if the container doesn't exist
+  }
+
   const container = await docker.createContainer({
     Image: deploymentId,
-    name: `deployx-${deploymentId}`,
+    name: containerName,
     Env: [`PORT=${containerPort}`, ...customEnvs],
     ExposedPorts: {
       [`${containerPort}/tcp`]: {}

@@ -25,6 +25,7 @@ import {
   DropdownMenuGroup,
   DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
+import { RedeploySidebar } from "./RedeploySidebar";
 
 interface Deployment {
   _id: string;
@@ -50,6 +51,7 @@ export function ProjectsTable({ onDeployProject }: ProjectsTableProps) {
   const [tick, setTick] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [redeployProject, setRedeployProject] = useState<Deployment | null>(null);
 
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -113,8 +115,10 @@ export function ProjectsTable({ onDeployProject }: ProjectsTableProps) {
           toast.error(`Build failed for "${name}".`, { id: data.deploymentId });
         } else if (data.status === 'STOPPED') {
           toast.warning(`Project "${name}" stopped.`, { id: data.deploymentId });
-        } else if (data.status === 'DELETED') {
+        }
+        if (data.status === 'DELETED') {
           toast.success(`Project deleted successfully.`);
+          return prev.filter(d => d.deploymentId !== data.deploymentId);
         }
 
         return prev.map(d => 
@@ -244,6 +248,15 @@ export function ProjectsTable({ onDeployProject }: ProjectsTableProps) {
             <Square className="mr-3 h-4 w-4" />
             <span className="font-medium">Stop Server</span>
           </DropdownMenuItem>
+          {deployment.gitUrl && (
+            <DropdownMenuItem 
+              className="rounded-lg px-3 py-2 hover:bg-blue-500/10 hover:text-blue-400 cursor-pointer transition-colors"
+              onClick={() => setRedeployProject(deployment)}
+            >
+              <Rocket className="mr-3 h-4 w-4" />
+              <span className="font-medium">Redeploy</span>
+            </DropdownMenuItem>
+          )}
         </DropdownMenuGroup>
         
         <DropdownMenuSeparator className="bg-zinc-800/60 my-2" />
@@ -299,6 +312,11 @@ export function ProjectsTable({ onDeployProject }: ProjectsTableProps) {
 
   return (
     <div className="w-full">
+      <RedeploySidebar 
+        isOpen={!!redeployProject} 
+        onClose={() => setRedeployProject(null)} 
+        deployment={redeployProject} 
+      />
       <div className="flex flex-col sm:flex-row items-center gap-1 w-full mb-6">
         <div className="relative flex-1 w-full">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />

@@ -39,7 +39,40 @@ export const createEmployee = async (req: Request, res: Response, next: NextFunc
     });
 
     if (existingUser) {
-      res.status(409).json({ error: 'Email or Username is already registered' });
+      if (existingUser.accountType === 'organization') {
+        res.status(409).json({ error: 'Cannot add an organization account as an employee' });
+        return;
+      }
+      
+      if (existingUser.accountType === 'employee') {
+        res.status(409).json({ error: 'This user is already registered as an employee' });
+        return;
+      }
+
+      // If they are an individual, verify the password provided in the modal
+      const isPasswordValid = await bcrypt.compare(password, existingUser.passwordHash);
+      if (!isPasswordValid) {
+        res.status(401).json({ error: 'User already exists. You must provide their correct current password to add them as an employee.' });
+        return;
+      }
+
+      // Upgrade individual to employee
+      existingUser.accountType = 'employee';
+      existingUser.organizationId = req.user.id;
+      existingUser.role = role.trim();
+      
+      await existingUser.save();
+
+      res.status(200).json({
+        message: 'Existing individual user converted to employee successfully',
+        employee: {
+          id: existingUser._id,
+          username: existingUser.username,
+          email: existingUser.email,
+          role: existingUser.role,
+          accountType: existingUser.accountType,
+        },
+      });
       return;
     }
 

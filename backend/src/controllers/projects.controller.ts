@@ -2,7 +2,8 @@ import { Request, Response, NextFunction } from 'express';
 import Docker from 'dockerode';
 import fs from 'fs';
 import path from 'path';
-import { Deployment, NotFoundError, removeNginxConfig, User } from '@deployhub/shared';
+import { Deployment, NotFoundError, removeNginxConfig, User, decrypt, encrypt } from '@deployhub/shared';
+import { GitDeployService } from '../services/git.service';
 import { notifyStatus } from '../utils/notify';
 
 const docker = new Docker();
@@ -179,16 +180,18 @@ export const deleteDeployment = async (req: Request, res: Response, next: NextFu
 
     if (project.containerId) {
       const container = docker.getContainer(project.containerId);
-      try {
-        await container.stop();
-      } catch (e: any) {
-        // Ignore if already stopped
-      }
-      try {
-        await container.remove({ force: true });
-      } catch (e: any) {
-        // Ignore if already removed
-      }
+      try { await container.stop(); } catch (e: any) {}
+      try { await container.remove({ force: true }); } catch (e: any) {}
+    }
+    
+    // Fallback: Also try to remove by name in case containerId was lost
+    try {
+      const containerName = `deployx-${project.projectName || project.deploymentId}`;
+      const existingContainer = docker.getContainer(containerName);
+      await existingContainer.stop().catch(() => {});
+      await existingContainer.remove({ force: true }).catch(() => {});
+    } catch (e) {
+      // Ignore
     }
     
     // Remove Nginx config and reload
@@ -212,3 +215,81 @@ export const deleteDeployment = async (req: Request, res: Response, next: NextFu
     next(error);
   }
 };
+
+export const getDeploymentEnvVars = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const id = req.params.id as string;
+    const project = await getAuthorizedProject(id, req.user!.id);
+    if (!project) {
+      throw new NotFoundError('Project not found');
+    }
+
+    let envVars: { key: string; value: string }[] = [];
+    if (project.envVars) {
+      try {
+        const decryptedEnv = decrypt(project.envVars);
+        const lines = decryptedEnv.split(/\r?\n/);
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed && !trimmed.startsWith('#')) {
+            const firstEq = trimmed.indexOf('=');
+            if (firstEq !== -1) {
+              envVars.push({
+                key: trimmed.substring(0, firstEq),
+                value: trimmed.substring(firstEq + 1)
+              });
+            } else {
+              envVars.push({ key: trimmed, value: '' });
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Failed to decrypt envVars', err);
+      }
+    }
+
+    res.status(200).json({ envVars });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const redeployProject = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const id = req.params.id as string;
+    const { envVars } = req.body; // Expecting string (the raw .env file format)
+
+    const project = await getAuthorizedProject(id, req.user!.id);
+    if (!project) {
+      throw new NotFoundError('Project not found');
+    }
+
+    if (!project.gitUrl) {
+      res.status(400).json({ error: 'Only Git-based projects can be redeployed using this endpoint.' });
+      return;
+    }
+
+    // Stop and remove existing container if running
+    if (project.containerId) {
+      const container = docker.getContainer(project.containerId);
+      try { await container.stop(); } catch (e) {}
+      try { await container.remove({ force: true }); } catch (e) {}
+    }
+
+    // Update environment variables if provided
+    if (envVars !== undefined) {
+      project.envVars = envVars ? encrypt(envVars) : undefined;
+      await project.save();
+    }
+
+    // Pass execution to service asynchronously
+    GitDeployService.processGitDeploy(project.deploymentId, project.gitUrl, project.branch || 'main').catch(err => {
+      console.error('Async git redeploy processing error:', err);
+    });
+
+    res.status(200).json({ message: 'Redeployment queued successfully' });
+  } catch (error) {
+    next(error);
+  }
+};
+
