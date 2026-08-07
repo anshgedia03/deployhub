@@ -176,16 +176,16 @@ export function ProjectsTable({ onDeployProject }: ProjectsTableProps) {
       if (action === 'delete') {
         const res = await fetch(getApiUrl(`/projects/${id}`), { method: 'DELETE', headers: getAuthHeaders() });
         if (res.ok) {
-          toast.success('Deletion request sent.');
+          toast.success('Deletion request sent.', { id: `delete-${id}` });
         } else {
-          toast.error('Failed to trigger deletion.');
+          toast.error('Failed to trigger deletion.', { id: `delete-error-${id}` });
         }
       } else if (action === 'start' || action === 'stop') {
         const res = await fetch(getApiUrl(`/projects/${id}/${action}`), { method: 'POST', headers: getAuthHeaders() });
         if (res.ok) {
-          toast.success(`Request to ${action} container sent.`);
+          toast.success(`Request to ${action} container sent.`, { id: `${action}-${id}` });
         } else {
-          toast.error(`Failed to ${action} container.`);
+          toast.error(`Failed to ${action} container.`, { id: `${action}-error-${id}` });
         }
       } else if (action === 'open') {
         const deployment = deployments.find(d => d.deploymentId === id);
