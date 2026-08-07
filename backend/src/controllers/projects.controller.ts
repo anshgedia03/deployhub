@@ -18,8 +18,8 @@ export const getProjects = async (req: Request, res: Response, next: NextFunctio
     if (currentUser) {
       if (currentUser.accountType === 'organization') {
         query.$or.push({ organizationId: currentUser._id.toString() });
-      } else if (currentUser.accountType === 'employee' && currentUser.organizationId) {
-        query.$or.push({ organizationId: currentUser.organizationId.toString() });
+      } else if (currentUser.accountType === 'employee') {
+        query.$or.push({ 'accessControl.employeeId': currentUser._id });
       }
     }
 
@@ -65,7 +65,13 @@ const getAuthorizedProject = async (deploymentId: string, reqUserId: string) => 
   const currentUser = await User.findById(reqUserId);
   if (currentUser) {
     const orgId = currentUser.accountType === 'organization' ? currentUser._id.toString() : currentUser.organizationId?.toString();
-    if (orgId && project.organizationId === orgId) return project;
+    if (orgId && project.organizationId === orgId) {
+      if (currentUser.accountType === 'employee') {
+        const hasAccess = project.accessControl?.some((ac: any) => ac.employeeId.toString() === currentUser._id.toString());
+        if (!hasAccess) return null;
+      }
+      return project;
+    }
   }
   
   return null;
@@ -288,6 +294,48 @@ export const redeployProject = async (req: Request, res: Response, next: NextFun
     });
 
     res.status(200).json({ message: 'Redeployment queued successfully' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const updateProjectAccess = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    if (req.user?.accountType !== 'organization') {
+      res.status(403).json({ error: 'Forbidden: Only organizations can modify project access' });
+      return;
+    }
+
+    const { id } = req.params;
+    const { employeeId, accessLevel } = req.body;
+
+    if (!['full', 'limited', 'none'].includes(accessLevel)) {
+      res.status(400).json({ error: 'Invalid access level. Must be "full", "limited", or "none".' });
+      return;
+    }
+
+    const project = await Deployment.findOne({ deploymentId: id, organizationId: req.user.id });
+    if (!project) {
+      res.status(404).json({ error: 'Project not found' });
+      return;
+    }
+
+    // Initialize array if not present
+    if (!project.accessControl) {
+      project.accessControl = [];
+    }
+
+    // Remove existing entry for this employee
+    project.accessControl = project.accessControl.filter(ac => ac.employeeId.toString() !== employeeId);
+
+    // Add new entry if not 'none'
+    if (accessLevel !== 'none') {
+      project.accessControl.push({ employeeId: employeeId as any, accessLevel });
+    }
+
+    await project.save();
+
+    res.status(200).json({ message: 'Project access updated successfully', accessControl: project.accessControl });
   } catch (error) {
     next(error);
   }

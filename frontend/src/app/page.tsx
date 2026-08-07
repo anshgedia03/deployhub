@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Terminal as TerminalIcon, Settings, LayoutDashboard, Rocket, Server, LogOut, User as UserIcon, X, Building, Users, Shield } from "lucide-react";
+import { Terminal as TerminalIcon, Settings, LayoutDashboard, Rocket, Server, LogOut, User as UserIcon, X, Building, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { UploadModal } from "@/components/UploadModal";
@@ -14,7 +14,6 @@ const Terminal = dynamic(() => import("@/components/Terminal").then((mod) => mod
 });
 import { ProjectsTable } from "@/components/ProjectsTable";
 import { EmployeesTable } from "@/components/EmployeesTable";
-import { AccessControl } from "@/components/AccessControl";
 
 export default function Home() {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -94,15 +93,13 @@ export default function Home() {
             </button>
           )}
 
-          {user?.accountType === "organization" && (
-            <button 
-              onClick={() => setActiveTab("infrastructure")}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeTab === "infrastructure" ? "text-zinc-100 bg-zinc-800/50" : "text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/30"}`}
-            >
-              <Shield className="w-4 h-4" />
-              Access Control
-            </button>
-          )}
+          <button 
+            onClick={() => setActiveTab("infrastructure")}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeTab === "infrastructure" ? "text-zinc-100 bg-zinc-800/50" : "text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/30"}`}
+          >
+            <Server className="w-4 h-4" />
+            Infrastructure
+          </button>
           
           <button 
             onClick={() => setActiveTab("settings")}
@@ -146,9 +143,9 @@ export default function Home() {
           />
         ) : (
           <div className="mt-4">
-            {activeTab === "dashboard" && <ProjectsTable onDeployProject={() => setIsModalOpen(true)} />}
+            {activeTab === "dashboard" && <ProjectsTable onDeployProject={() => setIsModalOpen(true)} user={user} />}
             {activeTab === "employees" && user?.accountType === "organization" && <EmployeesTable />}
-            {activeTab === "infrastructure" && user?.accountType === "organization" && <AccessControl />}
+            {activeTab === "infrastructure" && <div className="text-zinc-500">Infrastructure settings coming soon...</div>}
             {activeTab === "settings" && <div className="text-zinc-500">Global settings coming soon...</div>}
           </div>
         )}

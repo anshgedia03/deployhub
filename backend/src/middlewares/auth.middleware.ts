@@ -41,14 +41,35 @@ export const requireAuth = (req: Request, res: Response, next: NextFunction): vo
   }
 };
 
-import { User } from '@deployhub/shared';
+import { User, Deployment } from '@deployhub/shared';
 
 export const requireFullAccess = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     if (req.user?.accountType === 'employee') {
-      const user = await User.findById(req.user.id);
-      if (user?.accessLevel === 'limited') {
-        res.status(403).json({ error: 'Forbidden: Limited access employees cannot perform this action' });
+      const deploymentId = req.params.id; 
+      
+      // If there's no ID in the URL params, this is a create request (POST /deploy or POST /deploy/github). Block it.
+      if (!deploymentId) {
+        res.status(403).json({ error: 'Forbidden: Employees cannot create new projects. Only organizations can.' });
+        return;
+      }
+
+      const project = await Deployment.findOne({ 
+        $or: [{ deploymentId }, { projectName: deploymentId }]
+      });
+      
+      if (project && project.accessControl) {
+        const employeeAccess = project.accessControl.find(ac => ac.employeeId.toString() === req.user!.id);
+        if (!employeeAccess || employeeAccess.accessLevel === 'limited') {
+          res.status(403).json({ error: 'Forbidden: Limited access employees cannot perform this action on this project' });
+          return;
+        }
+      } else if (project) {
+        // If project exists but no access control array (or employee not in it), block by default for employees
+        res.status(403).json({ error: 'Forbidden: You do not have access to this project' });
+        return;
+      } else {
+        res.status(404).json({ error: 'Project not found' });
         return;
       }
     }

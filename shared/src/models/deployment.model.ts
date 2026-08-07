@@ -12,6 +12,7 @@ export interface IDeployment extends Document {
   gitUrl?: string;
   branch?: string;
   organizationId?: string;
+  accessControl?: { employeeId: mongoose.Types.ObjectId; accessLevel: 'full' | 'limited' }[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -34,6 +35,10 @@ const DeploymentSchema: Schema = new Schema(
     envVars: { type: String },
     gitUrl: { type: String },
     branch: { type: String },
+    accessControl: [{
+      employeeId: { type: Schema.Types.ObjectId, ref: 'User' },
+      accessLevel: { type: String, enum: ['full', 'limited'] }
+    }]
   },
   { timestamps: true }
 );

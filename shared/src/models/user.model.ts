@@ -8,7 +8,6 @@ export interface IUser extends Document {
   organizationName?: string;
   organizationId?: mongoose.Types.ObjectId;
   role?: string;
-  accessLevel?: 'full' | 'limited';
   createdAt: Date;
   updatedAt: Date;
 }
@@ -49,11 +48,6 @@ const UserSchema = new Schema<IUser>(
     organizationName: {
       type: String,
       trim: true,
-    },
-    accessLevel: {
-      type: String,
-      enum: ['full', 'limited'],
-      default: 'limited',
     },
   },
   {
