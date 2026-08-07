@@ -59,7 +59,7 @@ export function ProjectsTable({ onDeployProject, user }: ProjectsTableProps) {
     if (!user) return false;
     if (user.accountType === 'organization') return true;
     if (user.accountType === 'employee') {
-      const access = deployment.accessControl?.find((ac: any) => ac.employeeId === user._id);
+      const access = deployment.accessControl?.find((ac: any) => ac.employeeId === user.id);
       return access?.accessLevel === 'full';
     }
     return true; // Fallback for personal accounts
