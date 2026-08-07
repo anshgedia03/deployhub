@@ -26,7 +26,8 @@ COPY package.json ./
 
 ENV NODE_ENV=production
 
-# Install docker client inside worker if it needs to execute CLI commands
-# RUN apk add --no-cache docker-cli
+# Install docker client, curl, bash, and Railpack inside worker
+RUN apk add --no-cache docker-cli curl bash
+RUN curl -sSL https://railpack.com/install.sh | bash
 
 CMD ["npm", "start", "--workspace=worker"]

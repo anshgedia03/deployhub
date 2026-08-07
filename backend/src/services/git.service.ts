@@ -86,13 +86,14 @@ export class GitDeployService {
       notifyStatus(deploymentId, 'VALIDATING');
       appendLog(`[INFO] Validating repository structure...\r\n`);
 
-      // 4. Validate Dockerfile exists
+      // 4. Validate Dockerfile exists (removed for Railpack)
       const dockerfilePath = path.join(extractPath, 'Dockerfile');
       if (!fs.existsSync(dockerfilePath)) {
-        throw new ValidationError('Invalid repository: No Dockerfile found in the root of the repository.');
+        appendLog(`[INFO] No Dockerfile found in repository. Proceeding with Railpack zero-config build...\r\n`);
+      } else {
+        appendLog(`[INFO] Dockerfile found. Queueing build...\r\n`);
       }
 
-      appendLog(`[INFO] Dockerfile found. Queueing build...\r\n`);
 
       // 5. Queue the job
       await deployQueue.add('build-and-deploy', {

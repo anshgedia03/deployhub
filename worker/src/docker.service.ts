@@ -10,11 +10,43 @@ const docker = new Docker(); // Connects to /var/run/docker.sock by default
  * @param deploymentId - Used to tag the resulting Docker image.
  * @param onLog - Callback function to stream logs chunk by chunk.
  */
+import fs from 'fs';
+import path from 'path';
+
 export const buildDockerImage = async (
   extractPath: string,
   deploymentId: string,
   onLog: (logChunk: string) => void
 ): Promise<void> => {
+  const dockerfilePath = path.join(extractPath, 'Dockerfile');
+  
+  if (!fs.existsSync(dockerfilePath)) {
+    onLog('[INFO] No Dockerfile found. Proceeding with Railpack zero-config build...\r\n');
+    return new Promise((resolve, reject) => {
+      const { spawn } = require('child_process');
+      const railpack = spawn('railpack', ['build', '.', '--name', deploymentId], {
+        cwd: extractPath,
+        env: { ...process.env }
+      });
+
+      railpack.stdout.on('data', (data: any) => onLog(data.toString()));
+      railpack.stderr.on('data', (data: any) => onLog(data.toString()));
+
+      railpack.on('close', (code: number) => {
+        if (code === 0) {
+          onLog(`[INFO] Railpack build completed successfully.\r\n`);
+          resolve();
+        } else {
+          reject(new Error(`Railpack build failed with exit code ${code}`));
+        }
+      });
+
+      railpack.on('error', (err: any) => {
+        reject(err);
+      });
+    });
+  }
+
   return new Promise((resolve, reject) => {
     try {
       // Pack the directory into a tar stream

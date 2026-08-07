@@ -28,10 +28,10 @@ export class DeployService {
       await Deployment.updateOne({ deploymentId }, { status: 'VALIDATING' });
       notifyStatus(deploymentId, 'VALIDATING');
 
-      // Validate Dockerfile exists
+      // Validate Dockerfile exists (removed for Railpack)
       const dockerfilePath = path.join(extractPath, 'Dockerfile');
       if (!fs.existsSync(dockerfilePath)) {
-        throw new ValidationError('Invalid project: No Dockerfile found in the root of the ZIP archive.');
+        Logger.info('DeployService', 'No Dockerfile found. Proceeding with Railpack zero-config build.');
       }
 
       // Queue the job
