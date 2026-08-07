@@ -14,7 +14,8 @@ module.exports = {
       script: 'npm',
       args: 'run dev --workspace=worker',
       env: {
-        NODE_ENV: 'development'
+        NODE_ENV: 'development',
+        BUILDKIT_HOST: 'docker-container://buildkit'
       }
     },
     {

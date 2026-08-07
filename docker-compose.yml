@@ -8,6 +8,11 @@ services:
     volumes:
       - redis_data:/data
 
+  buildkit:
+    image: moby/buildkit:latest
+    container_name: buildkit
+    privileged: true
+
   nginx:
     image: nginx:alpine
     container_name: deployhub-nginx
