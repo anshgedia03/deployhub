@@ -2,7 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { handleDeployUpload, handleGitDeploy } from '../controllers/deploy.controller';
 import { uploadMiddleware } from '../middlewares/upload.middleware';
-import { requireAuth } from '../middlewares/auth.middleware';
+import { requireAuth, requireFullAccess } from '../middlewares/auth.middleware';
 import { Deployment, AppError, encrypt, User } from '@deployhub/shared';
 import { notifyStatus } from '../utils/notify';
 import Docker from 'dockerode';
@@ -92,8 +92,8 @@ const initDeployment = async (req: Request, res: Response, next: NextFunction) =
   }
 };
 
-router.post('/', uploadMiddleware.single('file'), initDeployment, handleDeployUpload);
-router.post('/github', initDeployment, handleGitDeploy);
+router.post('/', uploadMiddleware.single('file'), requireFullAccess, initDeployment, handleDeployUpload);
+router.post('/github', requireFullAccess, initDeployment, handleGitDeploy);
 
 export default router;
 

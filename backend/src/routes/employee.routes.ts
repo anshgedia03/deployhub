@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { createEmployee, getEmployees } from '../controllers/employee.controller';
+import { createEmployee, getEmployees, updateEmployeeAccessLevel } from '../controllers/employee.controller';
 import { requireAuth } from '../middlewares/auth.middleware';
 
 const router = Router();
@@ -9,5 +9,6 @@ router.use(requireAuth);
 
 router.post('/', createEmployee);
 router.get('/', getEmployees);
+router.put('/:id/access', updateEmployeeAccessLevel);
 
 export default router;

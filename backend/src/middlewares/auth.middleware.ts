@@ -40,3 +40,20 @@ export const requireAuth = (req: Request, res: Response, next: NextFunction): vo
     return;
   }
 };
+
+import { User } from '@deployhub/shared';
+
+export const requireFullAccess = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    if (req.user?.accountType === 'employee') {
+      const user = await User.findById(req.user.id);
+      if (user?.accessLevel === 'limited') {
+        res.status(403).json({ error: 'Forbidden: Limited access employees cannot perform this action' });
+        return;
+      }
+    }
+    next();
+  } catch (err) {
+    next(err);
+  }
+};

@@ -16,7 +16,7 @@ export const createEmployee = async (req: Request, res: Response, next: NextFunc
       return;
     }
 
-    const { username, email, password, role } = req.body;
+    const { username, email, password, role, accessLevel } = req.body;
 
     if (!username || !email || !password || !role) {
       res.status(400).json({ error: 'All fields (username, email, password, role) are required' });
@@ -60,6 +60,7 @@ export const createEmployee = async (req: Request, res: Response, next: NextFunc
       existingUser.accountType = 'employee';
       existingUser.organizationId = req.user.id;
       existingUser.role = role.trim();
+      existingUser.accessLevel = accessLevel || 'limited';
       
       await existingUser.save();
 
@@ -71,6 +72,7 @@ export const createEmployee = async (req: Request, res: Response, next: NextFunc
           email: existingUser.email,
           role: existingUser.role,
           accountType: existingUser.accountType,
+          accessLevel: existingUser.accessLevel,
         },
       });
       return;
@@ -86,6 +88,7 @@ export const createEmployee = async (req: Request, res: Response, next: NextFunc
       accountType: 'employee',
       organizationId: req.user.id, // Link to the organization
       role: role.trim(),
+      accessLevel: accessLevel || 'limited',
     });
 
     await newEmployee.save();
@@ -98,6 +101,7 @@ export const createEmployee = async (req: Request, res: Response, next: NextFunc
         email: newEmployee.email,
         role: newEmployee.role,
         accountType: newEmployee.accountType,
+        accessLevel: newEmployee.accessLevel,
       },
     });
   } catch (error) {
@@ -119,6 +123,48 @@ export const getEmployees = async (req: Request, res: Response, next: NextFuncti
     }).select('-passwordHash');
 
     res.status(200).json({ employees });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const updateEmployeeAccessLevel = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    if (req.user?.accountType !== 'organization') {
+      res.status(403).json({ error: 'Forbidden: Only organizations can modify employee access' });
+      return;
+    }
+
+    const employeeId = req.params.id;
+    const { accessLevel } = req.body;
+
+    if (!['full', 'limited'].includes(accessLevel)) {
+      res.status(400).json({ error: 'Invalid access level. Must be "full" or "limited".' });
+      return;
+    }
+
+    const employee = await User.findOne({
+      _id: employeeId,
+      organizationId: req.user.id,
+      accountType: 'employee',
+    });
+
+    if (!employee) {
+      res.status(404).json({ error: 'Employee not found in your organization' });
+      return;
+    }
+
+    employee.accessLevel = accessLevel;
+    await employee.save();
+
+    res.status(200).json({
+      message: 'Employee access level updated successfully',
+      employee: {
+        id: employee._id,
+        username: employee.username,
+        accessLevel: employee.accessLevel,
+      }
+    });
   } catch (error) {
     next(error);
   }
