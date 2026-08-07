@@ -124,6 +124,15 @@ export const loginUser = async (req: Request, res: Response, next: NextFunction)
       { expiresIn: env.JWT_EXPIRES_IN as any }
     );
 
+    let organizationName = user.organizationName;
+
+    if (user.accountType === 'employee' && user.organizationId) {
+      const org = await User.findById(user.organizationId).select('organizationName username');
+      if (org) {
+        organizationName = org.organizationName || org.username;
+      }
+    }
+
     // 5. Send Response
     res.status(200).json({
       message: 'Login successful',
@@ -133,6 +142,7 @@ export const loginUser = async (req: Request, res: Response, next: NextFunction)
         username: user.username,
         email: user.email,
         accountType: user.accountType,
+        organizationName: organizationName,
       },
     });
   } catch (error) {
@@ -154,13 +164,22 @@ export const getCurrentUser = async (req: Request, res: Response, next: NextFunc
       return;
     }
 
+    let organizationName = user.organizationName;
+
+    if (user.accountType === 'employee' && user.organizationId) {
+      const org = await User.findById(user.organizationId).select('organizationName username');
+      if (org) {
+        organizationName = org.organizationName || org.username;
+      }
+    }
+
     res.status(200).json({
       user: {
         id: user._id,
         username: user.username,
         email: user.email,
         accountType: user.accountType,
-        organizationName: user.organizationName,
+        organizationName: organizationName,
       }
     });
   } catch (error) {
