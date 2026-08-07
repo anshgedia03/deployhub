@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { io } from "socket.io-client";
-import { ExternalLink, Play, Square, Trash2, MoreHorizontal, Server, GitBranch, FileArchive, LayoutGrid, List, Triangle, Check, Loader2, X, Terminal, Settings, Star, Search, Rocket, Shield } from "lucide-react";
+import { ExternalLink, Play, Square, Trash2, MoreHorizontal, Server, GitBranch, FileArchive, LayoutGrid, List, Triangle, Check, Loader2, X, Terminal, Settings, Star, Search, Rocket } from "lucide-react";
 import { toast } from "sonner";
 import { getApiUrl, getSocketUrl, getAuthHeaders } from "@/config/api";
 import {
@@ -26,7 +26,6 @@ import {
   DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
 import { RedeploySidebar } from "./RedeploySidebar";
-import { ProjectAccessModal } from "./ProjectAccessModal";
 
 interface Deployment {
   _id: string;
@@ -54,8 +53,6 @@ export function ProjectsTable({ onDeployProject, user }: ProjectsTableProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [redeployProject, setRedeployProject] = useState<Deployment | null>(null);
-  const [isAccessModalOpen, setIsAccessModalOpen] = useState(false);
-  const [selectedAccessProjectId, setSelectedAccessProjectId] = useState<string | null>(null);
 
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -261,22 +258,9 @@ export function ProjectsTable({ onDeployProject, user }: ProjectsTableProps) {
             <span className="font-medium">Redeploy</span>
           </DropdownMenuItem>
           )}
-
-          {user?.accountType === 'organization' && (
-            <DropdownMenuItem 
-              className="rounded-lg px-3 py-2 hover:bg-blue-500/10 hover:text-blue-400 cursor-pointer transition-colors"
-              onClick={() => {
-                setSelectedAccessProjectId(deployment.deploymentId);
-                setIsAccessModalOpen(true);
-              }}
-            >
-              <Shield className="mr-3 h-4 w-4" />
-              <span className="font-medium">Manage Access</span>
-            </DropdownMenuItem>
-          )}
         </DropdownMenuGroup>
-          
-        <DropdownMenuSeparator className="bg-zinc-800/80 my-1" />
+
+          <DropdownMenuSeparator className="bg-zinc-800/80 my-1" />
         
         <DropdownMenuGroup>
           <DropdownMenuLabel className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider px-2 py-1.5">
@@ -552,16 +536,6 @@ export function ProjectsTable({ onDeployProject, user }: ProjectsTableProps) {
         </div>
       )}
 
-      {user?.accountType === 'organization' && selectedAccessProjectId && (
-        <ProjectAccessModal
-          isOpen={isAccessModalOpen}
-          onClose={() => {
-            setIsAccessModalOpen(false);
-            setSelectedAccessProjectId(null);
-          }}
-          projectId={selectedAccessProjectId}
-        />
-      )}
     </div>
   );
 }
