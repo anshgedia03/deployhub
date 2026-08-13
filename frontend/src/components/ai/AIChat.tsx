@@ -75,7 +75,7 @@ export function AIChat() {
       sender: 'ai',
       text: '',
       toolSteps: [],
-      isThinking: false,
+      isThinking: true,
       isStreaming: true,
     };
 
@@ -231,7 +231,12 @@ export function AIChat() {
             <div className="max-w-2xl space-y-1">
               {/* Minimalist Loader */}
               {msg.toolSteps && msg.toolSteps.length > 0 && (
-                <ToolStepLoader steps={msg.toolSteps} isThinking={msg.isThinking} />
+                <ToolStepLoader steps={msg.toolSteps} isThinking={msg.isThinking} isStreaming={msg.isStreaming} />
+              )}
+
+              {/* Only show Thinking if there are no tool steps yet */}
+              {msg.isThinking && (!msg.toolSteps || msg.toolSteps.length === 0) && (
+                <ToolStepLoader steps={[]} isThinking={true} isStreaming={msg.isStreaming} />
               )}
 
               <div
