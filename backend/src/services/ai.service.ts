@@ -288,6 +288,21 @@ export const processAIQuery = async (
       return;
     }
 
+    if (lowerQuery.includes('container') || lowerQuery.includes('docker') || lowerQuery.includes('health') || lowerQuery.includes('running')) {
+      const containerTool = tools.find(t => t.name === 'get_container_health')!;
+      const containerDataStr = await containerTool.invoke({});
+      const containerData = JSON.parse(containerDataStr);
+
+      sendSSE(res, 'thinking', { stepTitle: 'Finalizing response...' });
+
+      const reply = `Total Active Containers: ${containerData.totalContainers}\n\n` +
+        containerData.containers.map((c: any, i: number) => `${i + 1}. Container ${c.names[0]?.replace('/', '') || c.id} (Status: ${c.status}, State: ${c.state}, Image: ${c.image})`).join('\n');
+
+      sendSSE(res, 'token', reply);
+      sendSSE(res, 'done', { success: true });
+      return;
+    }
+
     // Default RAG Qdrant search
     const ragTool = tools.find(t => t.name === 'search_vector_knowledge')!;
     const ragDataStr = await ragTool.invoke({ searchQuery: query });
