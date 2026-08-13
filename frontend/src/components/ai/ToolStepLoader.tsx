@@ -1,7 +1,7 @@
 "use client";
 
-import React from 'react';
-import { Loader2, CheckCircle2, AlertCircle, Users, Rocket, Activity, Database, Sparkles } from 'lucide-react';
+import React, { useState } from 'react';
+import { Loader2, CheckCircle2, AlertCircle, ChevronDown, ChevronUp, Zap } from 'lucide-react';
 
 export interface ToolStep {
   toolName: string;
@@ -15,81 +15,78 @@ interface ToolStepLoaderProps {
   isThinking?: boolean;
 }
 
-const getToolIcon = (toolName: string) => {
-  switch (toolName) {
-    case 'get_organization_employees':
-      return <Users className="w-4 h-4 text-cyan-400" />;
-    case 'get_user_deployments':
-      return <Rocket className="w-4 h-4 text-purple-400" />;
-    case 'get_container_health':
-      return <Activity className="w-4 h-4 text-emerald-400" />;
-    case 'search_vector_knowledge':
-      return <Database className="w-4 h-4 text-blue-400" />;
-    default:
-      return <Sparkles className="w-4 h-4 text-cyan-400" />;
-  }
-};
-
 export const ToolStepLoader: React.FC<ToolStepLoaderProps> = ({ steps, isThinking }) => {
+  const [isExpanded, setIsExpanded] = useState(true);
+
   if (steps.length === 0 && !isThinking) return null;
 
+  const activeStep = steps.find((s) => s.status === 'running');
+  const completedCount = steps.filter((s) => s.status === 'completed').length;
+
   return (
-    <div className="my-3 p-4 rounded-xl border border-cyan-500/20 bg-cyan-950/10 backdrop-blur-md shadow-[0_0_20px_rgba(6,182,212,0.05)] transition-all animate-in fade-in duration-300">
-      <div className="flex items-center gap-2 mb-3 text-xs font-semibold uppercase tracking-wider text-cyan-400">
-        <Sparkles className="w-3.5 h-3.5 animate-pulse" />
-        <span>Agent Tool Chain Execution</span>
-      </div>
+    <div className="my-2.5 rounded-lg border border-zinc-800/80 bg-[#141418]/60 backdrop-blur-md overflow-hidden text-xs transition-all">
+      {/* Collapsible Header Pill */}
+      <button
+        type="button"
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="w-full px-3.5 py-2 flex items-center justify-between gap-2 hover:bg-zinc-800/40 transition-colors text-zinc-300 font-mono"
+      >
+        <div className="flex items-center gap-2">
+          <Zap className="w-3.5 h-3.5 text-zinc-400" />
+          <span className="font-semibold text-zinc-200">
+            {activeStep
+              ? activeStep.stepTitle
+              : isThinking
+              ? 'Finalizing response...'
+              : `Executed ${completedCount} tool${completedCount === 1 ? '' : 's'}`}
+          </span>
+          {activeStep && (
+            <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 border border-zinc-700">
+              <Loader2 className="w-2.5 h-2.5 animate-spin" />
+              Running
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5 text-zinc-500 hover:text-zinc-300">
+          <span>{steps.length} step{steps.length === 1 ? '' : 's'}</span>
+          {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+        </div>
+      </button>
 
-      <div className="space-y-3 relative before:absolute before:left-3.5 before:top-3 before:bottom-3 before:w-[2px] before:bg-cyan-950/60">
-        {steps.map((step, idx) => (
-          <div key={idx} className="flex items-start gap-3 relative z-10">
-            {/* Status node */}
-            <div className="flex items-center justify-center w-7 h-7 rounded-full border border-cyan-500/30 bg-[#0c0d12] shadow-sm shrink-0">
-              {step.status === 'running' ? (
-                <Loader2 className="w-3.5 h-3.5 text-cyan-400 animate-spin" />
-              ) : step.status === 'completed' ? (
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-              ) : (
-                <AlertCircle className="w-3.5 h-3.5 text-red-400" />
-              )}
-            </div>
-
-            {/* Step content */}
-            <div className="flex-1 pt-0.5">
-              <div className="flex items-center gap-2">
-                {getToolIcon(step.toolName)}
-                <span className={`text-xs font-medium ${step.status === 'running' ? 'text-cyan-300 animate-pulse' : 'text-zinc-200'}`}>
+      {/* Expanded Step Timeline */}
+      {isExpanded && (
+        <div className="px-3.5 py-2.5 border-t border-zinc-800/60 bg-[#0f0f12]/40 space-y-2">
+          {steps.map((step, idx) => (
+            <div key={idx} className="flex items-center justify-between gap-2 text-[11px] font-mono">
+              <div className="flex items-center gap-2 min-w-0">
+                {step.status === 'running' ? (
+                  <Loader2 className="w-3 h-3 text-zinc-400 animate-spin shrink-0" />
+                ) : step.status === 'completed' ? (
+                  <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
+                ) : (
+                  <AlertCircle className="w-3 h-3 text-red-400 shrink-0" />
+                )}
+                <span className={step.status === 'running' ? 'text-zinc-200 animate-pulse' : 'text-zinc-400'}>
                   {step.stepTitle}
                 </span>
-                {step.status === 'running' && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
-                    Executing...
-                  </span>
-                )}
               </div>
+
               {step.resultSummary && (
-                <p className="text-[11px] text-zinc-400 mt-0.5 font-mono">
+                <span className="text-[10px] text-zinc-500 font-sans truncate max-w-[200px]">
                   {step.resultSummary}
-                </p>
+                </span>
               )}
             </div>
-          </div>
-        ))}
+          ))}
 
-        {/* Thinking Step */}
-        {isThinking && (
-          <div className="flex items-start gap-3 relative z-10 animate-in fade-in">
-            <div className="flex items-center justify-center w-7 h-7 rounded-full border border-purple-500/30 bg-purple-950/20 shadow-sm shrink-0">
-              <Sparkles className="w-3.5 h-3.5 text-purple-400 animate-pulse" />
+          {isThinking && (
+            <div className="flex items-center gap-2 text-[11px] font-mono text-zinc-400 animate-pulse pt-1">
+              <Loader2 className="w-3 h-3 animate-spin text-zinc-400 shrink-0" />
+              <span>Synthesizing final response...</span>
             </div>
-            <div className="flex-1 pt-1">
-              <span className="text-xs font-medium text-purple-300 animate-pulse">
-                Finalizing response...
-              </span>
-            </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };
