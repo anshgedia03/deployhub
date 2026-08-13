@@ -1,41 +1,41 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Sparkles, Send, Bot, User, Database, Cpu, Zap, RefreshCw, Command, ChevronRight } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { Send, Bot, User, RefreshCw } from 'lucide-react';
 import { getApiUrl } from '@/config/api';
 import { toast } from 'sonner';
 import { ToolStepLoader, ToolStep } from './ToolStepLoader';
-import { EmployeeCardsWidget, DeploymentCardsWidget, ContainerHealthWidget } from './RichDataWidgets';
 
 interface Message {
   id: string;
   sender: 'user' | 'ai';
   text: string;
   toolSteps?: ToolStep[];
-  structuredData?: {
-    employees?: any[];
-    deployments?: any[];
-    containers?: any[];
-  };
   isThinking?: boolean;
   isStreaming?: boolean;
 }
 
-const PROMPT_PRESETS = [
-  "Tell me total employees of our organization",
-  "Give me total deployments by user",
-  "Check Docker container health",
-  "Search vector build logs for errors",
-];
+/**
+ * Format markdown symbols out into clean, readable text
+ */
+function cleanText(text: string): string {
+  if (!text) return '';
+  return text
+    .replace(/^###\s+/gm, '')
+    .replace(/^##\s+/gm, '')
+    .replace(/^#\s+/gm, '')
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/\*(.*?)\*/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .trim();
+}
 
 export function AIChat() {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 'welcome',
       sender: 'ai',
-      text: "👋 **Welcome to DeployHub AI Command Center**\n\nI am your Cloud Infrastructure & DevOps Assistant powered by **Groq (`gpt-oss-20b`)**, **Hugging Face Embeddings**, and **Qdrant Vector Database**.\n\nAsk me anything about organization employees, project deployments, Docker container health, or search through vector build logs!",
+      text: "Hello! I am DeployHub AI Assistant.\n\nAsk me anything about your organization employees, deployments, live container health, or deployment history.",
     },
   ]);
   const [inputPrompt, setInputPrompt] = useState('');
@@ -75,7 +75,6 @@ export function AIChat() {
       sender: 'ai',
       text: '',
       toolSteps: [],
-      structuredData: {},
       isThinking: false,
       isStreaming: true,
     };
@@ -138,7 +137,6 @@ export function AIChat() {
                 if (msg.id !== aiMessageId) return msg;
 
                 const currentSteps = msg.toolSteps ? [...msg.toolSteps] : [];
-                const currentData = msg.structuredData ? { ...msg.structuredData } : {};
 
                 if (eventName === 'tool_start') {
                   const existingIdx = currentSteps.findIndex((s) => s.toolName === data.toolName);
@@ -163,13 +161,7 @@ export function AIChat() {
                       resultSummary: data.resultSummary,
                     };
                   }
-
-                  // Parse structured widget payload if returned from tool
-                  if (data.toolName === 'get_organization_employees' && data.resultSummary) {
-                    // Refetch from tool response if embedded
-                  }
-
-                  return { ...msg, toolSteps: currentSteps, structuredData: currentData };
+                  return { ...msg, toolSteps: currentSteps };
                 }
 
                 if (eventName === 'thinking') {
@@ -178,20 +170,9 @@ export function AIChat() {
 
                 if (eventName === 'token') {
                   const appendedText = msg.text + (typeof data === 'string' ? data : JSON.stringify(data));
-                  
-                  // Extract dynamic JSON or markdown widgets if detected in stream
-                  let parsedEmployees = currentData.employees;
-                  let parsedDeployments = currentData.deployments;
-                  let parsedContainers = currentData.containers;
-
                   return {
                     ...msg,
                     text: appendedText,
-                    structuredData: {
-                      employees: parsedEmployees,
-                      deployments: parsedDeployments,
-                      containers: parsedContainers,
-                    },
                     isThinking: false,
                   };
                 }
@@ -216,7 +197,7 @@ export function AIChat() {
           msg.id === aiMessageId
             ? {
                 ...msg,
-                text: '❌ **Error:** Unable to process query. Please check server logs and environment configuration.',
+                text: 'Unable to process query. Please check server logs and configuration.',
                 isStreaming: false,
                 isThinking: false,
               }
@@ -229,172 +210,79 @@ export function AIChat() {
   };
 
   return (
-    <div className="w-full flex flex-col h-[calc(100vh-5.5rem)] bg-[#09090b] text-zinc-100 rounded-xl border border-zinc-800/80 shadow-2xl overflow-hidden font-sans">
-      {/* Top Header Status Bar */}
-      <div className="px-6 py-3.5 border-b border-zinc-800/80 bg-[#111115]/80 backdrop-blur-md flex flex-wrap items-center justify-between gap-4 z-10">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-zinc-800 border border-zinc-700/80 flex items-center justify-center text-zinc-200">
-            <Sparkles className="w-4 h-4 text-zinc-300" />
-          </div>
-          <div>
-            <h2 className="text-sm font-semibold text-zinc-100 tracking-tight flex items-center gap-2">
-              DeployHub AI Command Center
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                Agent Online
-              </span>
-            </h2>
-            <p className="text-[11px] text-zinc-400">RAG Vector Intelligence & Real-time DevOps Automation</p>
-          </div>
-        </div>
-
-        {/* Engine Badges */}
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-zinc-900 border border-zinc-800 text-zinc-300 text-xs font-mono">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            <Database className="w-3 h-3 text-zinc-400" />
-            <span>Qdrant DB</span>
-          </div>
-
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-zinc-900 border border-zinc-800 text-zinc-300 text-xs font-mono">
-            <Cpu className="w-3 h-3 text-zinc-400" />
-            <span>Groq (gpt-oss-20b)</span>
-          </div>
-
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-zinc-900 border border-zinc-800 text-zinc-300 text-xs font-mono">
-            <Zap className="w-3 h-3 text-zinc-400" />
-            <span>HF Embeddings</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Chat Canvas */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-thin scrollbar-thumb-zinc-800">
+    <div className="w-full max-w-4xl mx-auto flex flex-col h-[calc(100vh-6rem)] bg-[#09090b] text-zinc-100 font-sans relative rounded-xl border border-zinc-800/80 shadow-xl overflow-hidden">
+      {/* ChatGPT Style Conversation Stream */}
+      <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 scrollbar-thin scrollbar-thumb-zinc-800">
         {messages.map((msg) => (
           <div
             key={msg.id}
-            className={`flex items-start gap-3.5 ${
-              msg.sender === 'user' ? 'flex-row-reverse' : 'flex-row'
+            className={`flex items-start gap-3 ${
+              msg.sender === 'user' ? 'justify-end' : 'justify-start'
             } animate-in fade-in duration-200`}
           >
-            {/* Avatar */}
-            <div
-              className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border ${
-                msg.sender === 'user'
-                  ? 'bg-zinc-800 border-zinc-700 text-zinc-200'
-                  : 'bg-indigo-950/60 border-indigo-500/30 text-indigo-300'
-              }`}
-            >
-              {msg.sender === 'user' ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
-            </div>
+            {/* AI Avatar */}
+            {msg.sender === 'ai' && (
+              <div className="w-7 h-7 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-zinc-300 shrink-0 mt-1">
+                <Bot className="w-4 h-4" />
+              </div>
+            )}
 
-            {/* Message Content Container */}
-            <div
-              className={`max-w-3xl rounded-xl p-4 border text-sm leading-relaxed ${
-                msg.sender === 'user'
-                  ? 'bg-zinc-900 border-zinc-800 text-zinc-100 rounded-tr-none'
-                  : 'bg-[#121215] border-zinc-800/80 text-zinc-200 rounded-tl-none shadow-sm'
-              }`}
-            >
-              {/* Tool Execution Step Accordion */}
+            {/* Message Bubble */}
+            <div className="max-w-2xl space-y-1">
+              {/* Minimalist Loader */}
               {msg.toolSteps && msg.toolSteps.length > 0 && (
                 <ToolStepLoader steps={msg.toolSteps} isThinking={msg.isThinking} />
               )}
 
-              {/* Rich Data Components */}
-              {msg.structuredData?.employees && (
-                <EmployeeCardsWidget employees={msg.structuredData.employees} />
-              )}
-              {msg.structuredData?.deployments && (
-                <DeploymentCardsWidget deployments={msg.structuredData.deployments} />
-              )}
-              {msg.structuredData?.containers && (
-                <ContainerHealthWidget containers={msg.structuredData.containers} />
-              )}
-
-              {/* Parsed Markdown Output */}
-              {msg.text ? (
-                <div className="prose prose-invert prose-zinc max-w-none text-xs sm:text-sm leading-relaxed font-sans">
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    components={{
-                      table: ({ node, ...props }) => (
-                        <div className="my-3 overflow-x-auto rounded-lg border border-zinc-800">
-                          <table className="w-full text-left border-collapse text-xs" {...props} />
-                        </div>
-                      ),
-                      thead: ({ node, ...props }) => <thead className="bg-zinc-900 border-b border-zinc-800 text-zinc-300 font-semibold" {...props} />,
-                      th: ({ node, ...props }) => <th className="p-2.5 font-semibold text-zinc-300" {...props} />,
-                      td: ({ node, ...props }) => <td className="p-2.5 border-t border-zinc-800/60 text-zinc-300" {...props} />,
-                      code: ({ node, className, children, ...props }) => (
-                        <code className="bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800 text-zinc-200 font-mono text-[11px]" {...props}>
-                          {children}
-                        </code>
-                      ),
-                    }}
-                  >
-                    {msg.text}
-                  </ReactMarkdown>
-                </div>
-              ) : (
-                msg.isThinking && (
-                  <div className="flex items-center gap-2 text-xs text-zinc-400 font-mono animate-pulse">
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-zinc-400" />
-                    <span>Processing response...</span>
-                  </div>
-                )
-              )}
+              <div
+                className={`p-3.5 rounded-2xl text-xs sm:text-sm leading-relaxed whitespace-pre-wrap ${
+                  msg.sender === 'user'
+                    ? 'bg-blue-600 text-white rounded-tr-none font-medium shadow-sm'
+                    : 'bg-zinc-900 border border-zinc-800 text-zinc-200 rounded-tl-none'
+                }`}
+              >
+                {cleanText(msg.text)}
+              </div>
             </div>
+
+            {/* User Avatar */}
+            {msg.sender === 'user' && (
+              <div className="w-7 h-7 rounded-full bg-blue-700 flex items-center justify-center text-white shrink-0 mt-1">
+                <User className="w-4 h-4" />
+              </div>
+            )}
           </div>
         ))}
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input Bar & Presets */}
-      <div className="p-4 border-t border-zinc-800/80 bg-[#111115]/90 backdrop-blur-md space-y-3">
-        {/* Preset Prompt Chips */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
-          <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider shrink-0 flex items-center gap-1">
-            <Command className="w-3 h-3 text-zinc-400" /> Suggestions:
-          </span>
-          {PROMPT_PRESETS.map((preset, idx) => (
-            <button
-              key={idx}
-              onClick={() => handleSend(preset)}
-              disabled={isLoading}
-              className="text-xs px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-zinc-100 transition-all shrink-0 disabled:opacity-50 flex items-center gap-1 font-sans"
-            >
-              <span>{preset}</span>
-              <ChevronRight className="w-3 h-3 text-zinc-500" />
-            </button>
-          ))}
-        </div>
-
-        {/* Input Form */}
+      {/* ChatGPT Style Minimalist Input Bar */}
+      <div className="p-4 border-t border-zinc-800 bg-[#0c0c0e]">
         <form
           onSubmit={(e) => {
             e.preventDefault();
             handleSend();
           }}
-          className="relative flex items-center"
+          className="relative flex items-center max-w-3xl mx-auto"
         >
           <input
             type="text"
             value={inputPrompt}
             onChange={(e) => setInputPrompt(e.target.value)}
-            placeholder="Ask DeployHub AI (e.g. 'tell me total employees of our organization')..."
+            placeholder="Message DeployHub AI..."
             disabled={isLoading}
-            className="w-full bg-zinc-900/90 border border-zinc-800 focus:border-zinc-700 rounded-lg px-4 py-3 pr-12 text-xs sm:text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-700 transition-all disabled:opacity-50"
+            className="w-full bg-zinc-900 border border-zinc-800 focus:border-zinc-700 rounded-full px-5 py-3.5 pr-14 text-xs sm:text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-700 transition-all disabled:opacity-50"
           />
 
           <button
             type="submit"
             disabled={!inputPrompt.trim() || isLoading}
-            className="absolute right-2 p-2 rounded-md bg-zinc-100 hover:bg-white text-zinc-900 font-semibold transition-all disabled:opacity-30 disabled:bg-zinc-800 disabled:text-zinc-600"
+            className="absolute right-2 p-2 rounded-full bg-white hover:bg-zinc-200 text-black font-semibold transition-all disabled:opacity-30 disabled:bg-zinc-800 disabled:text-zinc-600"
           >
             {isLoading ? (
-              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              <RefreshCw className="w-4 h-4 animate-spin text-black" />
             ) : (
-              <Send className="w-3.5 h-3.5" />
+              <Send className="w-4 h-4 text-black" />
             )}
           </button>
         </form>

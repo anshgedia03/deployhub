@@ -265,9 +265,8 @@ export const processAIQuery = async (
 
       sendSSE(res, 'thinking', { stepTitle: 'Finalizing response...' });
 
-      const reply = `### Organization Employees Summary\n\nYour organization currently has **${empData.totalEmployees}** total member(s):\n\n` +
-        empData.employees.map((e: any) => `- **${e.username}** (\`${e.email}\`) — Role: *${e.role}* (${e.accountType})`).join('\n') +
-        `\n\n*Note: Configure \`GROQ_API_KEY\` in environment for advanced multi-tool LLM reasoning.*`;
+      const reply = `Total Organization Members: ${empData.totalEmployees}\n\n` +
+        empData.employees.map((e: any, i: number) => `${i + 1}. ${e.username} (${e.email}) - Role: ${e.role || 'Member'}`).join('\n');
 
       sendSSE(res, 'token', reply);
       sendSSE(res, 'done', { success: true });
@@ -281,9 +280,8 @@ export const processAIQuery = async (
 
       sendSSE(res, 'thinking', { stepTitle: 'Finalizing response...' });
 
-      const reply = `### Organization Deployments Summary\n\nYour organization has **${depData.totalDeployments}** project deployment(s):\n\n` +
-        depData.deployments.map((d: any) => `- **${d.projectName}**: Status \`${d.status}\`${d.publicUrl ? ` — [Live App](${d.publicUrl})` : ''} (Port: ${d.port || 'N/A'})`).join('\n') +
-        `\n\n*Note: Configure \`GROQ_API_KEY\` in environment for advanced multi-tool LLM reasoning.*`;
+      const reply = `Total Deployments: ${depData.totalDeployments}\n\n` +
+        depData.deployments.map((d: any, i: number) => `${i + 1}. ${d.projectName} (Status: ${d.status}, Port: ${d.port || 'N/A'}${d.publicUrl ? `, URL: ${d.publicUrl}` : ''})`).join('\n');
 
       sendSSE(res, 'token', reply);
       sendSSE(res, 'done', { success: true });
@@ -297,11 +295,11 @@ export const processAIQuery = async (
 
     sendSSE(res, 'thinking', { stepTitle: 'Finalizing response...' });
 
-    let reply = `### DeployHub Knowledge Response\n\nBased on vector index search:\n\n`;
+    let reply = `Knowledge Search Results:\n\n`;
     if (chunks.length > 0) {
-      reply += chunks.map((c: any) => `> **${c.title}**\n> ${c.content}\n`).join('\n');
+      reply += chunks.map((c: any) => `• ${c.title}:\n  ${c.content}\n`).join('\n');
     } else {
-      reply += `No specific build log or project vector chunks found matching "${query}". You can ask about **total employees**, **active deployments**, or **container health**!`;
+      reply += `No specific build logs or project knowledge chunks matched "${query}". You can ask about total employees, deployments, or container status!`;
     }
 
     sendSSE(res, 'token', reply);
@@ -319,10 +317,9 @@ export const processAIQuery = async (
 
     const messages: BaseMessage[] = [
       new SystemMessage(
-        'You are DeployHub AI, an expert cloud infrastructure & DevOps AI agent. ' +
-        'You have access to tools to query organization employees, project deployments, Docker container health, and Qdrant vector database chunks. ' +
-        'Always use appropriate tools when user asks factual questions about employees, deployments, or build logs. ' +
-        'Synthesize findings into clean, concise Markdown responses with bold headings, bullet lists, and status indicators.'
+        'You are DeployHub AI, a helpful cloud infrastructure and DevOps assistant. ' +
+        'Answer questions directly in clear, clean, natural human text. ' +
+        'Do not output raw Markdown table syntax or unparsed symbols. Use clean numbered or bulleted lists.'
       ),
       new HumanMessage(query),
     ];
