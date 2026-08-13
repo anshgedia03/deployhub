@@ -3,11 +3,15 @@ import { Server } from 'socket.io';
 import Redis from 'ioredis';
 import app from './app';
 import { env, Logger, mongoose } from '@deployhub/shared';
+import { initQdrantCollection } from './services/qdrant.service';
 
 const startServer = async () => {
   try {
     await mongoose.connect(env.MONGODB_URI);
     Logger.info('Backend', 'Connected to MongoDB');
+
+    // Initialize Qdrant collection
+    await initQdrantCollection();
 
     const httpServer = createServer(app);
     const io = new Server(httpServer, {

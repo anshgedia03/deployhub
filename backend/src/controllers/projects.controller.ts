@@ -289,7 +289,7 @@ export const redeployProject = async (req: Request, res: Response, next: NextFun
 
     // Update environment variables if provided
     if (envVars !== undefined) {
-      project.envVars = envVars ? encrypt(envVars) : undefined;
+      project.envVars = envVars ? encrypt(envVars) : '';
       await project.save();
     }
 

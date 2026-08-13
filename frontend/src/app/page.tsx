@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Terminal as TerminalIcon, Settings, LayoutDashboard, Rocket, Server, LogOut, User as UserIcon, X, Building, Users, Shield } from "lucide-react";
+import { Terminal as TerminalIcon, Settings, LayoutDashboard, Rocket, Server, LogOut, User as UserIcon, X, Building, Users, Shield, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { UploadModal } from "@/components/UploadModal";
@@ -15,6 +15,7 @@ const Terminal = dynamic(() => import("@/components/Terminal").then((mod) => mod
 import { ProjectsTable } from "@/components/ProjectsTable";
 import { EmployeesTable } from "@/components/EmployeesTable";
 import { AccessControl } from "@/components/AccessControl";
+import { AIChat } from "@/components/ai/AIChat";
 
 export default function Home() {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -23,7 +24,7 @@ export default function Home() {
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [user, setUser] = useState<any>(null);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<"dashboard" | "employees" | "infrastructure" | "settings">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "employees" | "infrastructure" | "settings" | "ai">("dashboard");
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -103,6 +104,23 @@ export default function Home() {
               Access Control
             </button>
           )}
+
+          <button 
+            onClick={() => setActiveTab("ai")}
+            className={`w-full flex items-center justify-between px-3 py-2 rounded-md transition-all ${
+              activeTab === "ai"
+                ? "text-cyan-300 bg-cyan-950/40 border border-cyan-500/30 shadow-[0_0_15px_rgba(6,182,212,0.15)]"
+                : "text-zinc-400 hover:text-cyan-300 hover:bg-zinc-800/30"
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <Sparkles className="w-4 h-4 text-cyan-400" />
+              <span>DeployHub AI</span>
+            </div>
+            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+              NEW
+            </span>
+          </button>
           
           <button 
             onClick={() => setActiveTab("settings")}
@@ -149,6 +167,7 @@ export default function Home() {
             {activeTab === "dashboard" && <ProjectsTable onDeployProject={() => setIsModalOpen(true)} user={user} />}
             {activeTab === "employees" && user?.accountType === "organization" && <EmployeesTable />}
             {activeTab === "infrastructure" && user?.accountType === "organization" && <AccessControl />}
+            {activeTab === "ai" && <AIChat />}
             {activeTab === "settings" && <div className="text-zinc-500">Global settings coming soon...</div>}
           </div>
         )}

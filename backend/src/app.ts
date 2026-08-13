@@ -5,6 +5,7 @@ import projectsRoutes from './routes/projects.routes';
 import webhookRoutes from './routes/webhook.routes';
 import authRoutes from './routes/auth.routes';
 import employeeRoutes from './routes/employee.routes';
+import aiRoutes from './routes/ai.routes';
 import { errorHandler } from './middlewares/errorHandler';
 
 const app = express();
@@ -20,6 +21,7 @@ app.use('/projects', projectsRoutes);
 app.use('/webhooks', webhookRoutes);
 app.use('/auth', authRoutes);
 app.use('/employees', employeeRoutes);
+app.use('/ai', aiRoutes);
 
 // Health check endpoint
 app.get('/health', (req: express.Request, res: express.Response) => {

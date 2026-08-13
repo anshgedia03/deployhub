@@ -15,6 +15,9 @@ const envSchema = z.object({
   ENCRYPTION_KEY: z.string().default('c30f40cf2003c2005a81878d65c30fb90731f87a8b6ebc453ef123d456fef093'),
   JWT_SECRET: z.string().default('super-secret-jwt-key-change-in-production'),
   JWT_EXPIRES_IN: z.string().default('24h'),
+  GROQ_API_KEY: z.string().optional().default(''),
+  HUGGINGFACE_API_KEY: z.string().optional().default(''),
+  QDRANT_URL: z.string().default('http://localhost:6333'),
 });
 
 export const env = envSchema.parse(process.env);
