@@ -258,10 +258,32 @@ export const processAIQuery = async (
 
     const lowerQuery = query.toLowerCase();
 
-    if (lowerQuery.includes('employee') || lowerQuery.includes('user') || lowerQuery.includes('team') || lowerQuery.includes('people') || lowerQuery.includes('organization')) {
+    // Check for combined multi-tool queries in fallback mode
+    const hasEmployeeQuery = lowerQuery.includes('employee') || lowerQuery.includes('user') || lowerQuery.includes('team') || lowerQuery.includes('people') || lowerQuery.includes('organization');
+    const hasDeployQuery = lowerQuery.includes('deploy') || lowerQuery.includes('project') || lowerQuery.includes('app');
+    const hasContainerQuery = lowerQuery.includes('container') || lowerQuery.includes('docker') || lowerQuery.includes('health') || lowerQuery.includes('running');
+
+    if (hasEmployeeQuery && hasDeployQuery) {
       const empTool = tools.find(t => t.name === 'get_organization_employees')!;
-      const empDataStr = await empTool.invoke({});
-      const empData = JSON.parse(empDataStr);
+      const depTool = tools.find(t => t.name === 'get_user_deployments')!;
+
+      const empData = JSON.parse(await empTool.invoke({}));
+      const depData = JSON.parse(await depTool.invoke({}));
+
+      sendSSE(res, 'thinking', { stepTitle: 'Finalizing combined report...' });
+
+      let reply = `Organization Summary (${empData.totalEmployees} Employees, ${depData.totalDeployments} Projects):\n\n`;
+      reply += `Employees:\n` + empData.employees.map((e: any, i: number) => `${i + 1}. ${e.username} (${e.email}) - ${e.role || 'Member'}`).join('\n');
+      reply += `\n\nProjects & Deployments:\n` + depData.deployments.map((d: any, i: number) => `${i + 1}. ${d.projectName} (Status: ${d.status}, Port: ${d.port || 'N/A'})`).join('\n');
+
+      sendSSE(res, 'token', reply);
+      sendSSE(res, 'done', { success: true });
+      return;
+    }
+
+    if (hasEmployeeQuery) {
+      const empTool = tools.find(t => t.name === 'get_organization_employees')!;
+      const empData = JSON.parse(await empTool.invoke({}));
 
       sendSSE(res, 'thinking', { stepTitle: 'Finalizing response...' });
 
@@ -273,10 +295,9 @@ export const processAIQuery = async (
       return;
     }
 
-    if (lowerQuery.includes('deploy') || lowerQuery.includes('project') || lowerQuery.includes('app') || lowerQuery.includes('status')) {
+    if (hasDeployQuery || lowerQuery.includes('status')) {
       const depTool = tools.find(t => t.name === 'get_user_deployments')!;
-      const depDataStr = await depTool.invoke({});
-      const depData = JSON.parse(depDataStr);
+      const depData = JSON.parse(await depTool.invoke({}));
 
       sendSSE(res, 'thinking', { stepTitle: 'Finalizing response...' });
 
@@ -288,10 +309,9 @@ export const processAIQuery = async (
       return;
     }
 
-    if (lowerQuery.includes('container') || lowerQuery.includes('docker') || lowerQuery.includes('health') || lowerQuery.includes('running')) {
+    if (hasContainerQuery) {
       const containerTool = tools.find(t => t.name === 'get_container_health')!;
-      const containerDataStr = await containerTool.invoke({});
-      const containerData = JSON.parse(containerDataStr);
+      const containerData = JSON.parse(await containerTool.invoke({}));
 
       sendSSE(res, 'thinking', { stepTitle: 'Finalizing response...' });
 
@@ -334,6 +354,7 @@ export const processAIQuery = async (
       new SystemMessage(
         'You are DeployHub AI, a helpful cloud infrastructure and DevOps assistant. ' +
         'Answer questions directly in clear, clean, natural human text. ' +
+        'When answering questions requiring multiple pieces of data (e.g. employees AND their deployments), invoke all necessary tools. ' +
         'Do not output raw Markdown table syntax or unparsed symbols. Use clean numbered or bulleted lists.'
       ),
       new HumanMessage(query),
@@ -341,31 +362,40 @@ export const processAIQuery = async (
 
     let response = await model.invoke(messages);
 
-    // If model decides to call tools
-    if (response.tool_calls && response.tool_calls.length > 0) {
+    // Multi-step agent loop (up to 5 tool execution iterations)
+    let iterations = 0;
+    while (response.tool_calls && response.tool_calls.length > 0 && iterations < 5) {
+      iterations++;
       messages.push(response);
 
       for (const call of response.tool_calls) {
         const targetTool = tools.find((t) => t.name === call.name);
         if (targetTool) {
-          const toolResult = await (targetTool as any).invoke(call.args);
-          messages.push(
-            new ToolMessage({
-              content: toolResult,
-              tool_call_id: call.id || call.name,
-            })
-          );
+          try {
+            const toolResult = await (targetTool as any).invoke(call.args);
+            messages.push(
+              new ToolMessage({
+                content: typeof toolResult === 'string' ? toolResult : JSON.stringify(toolResult),
+                tool_call_id: call.id || call.name,
+              })
+            );
+          } catch (err: any) {
+            messages.push(
+              new ToolMessage({
+                content: JSON.stringify({ error: err.message || 'Tool execution error' }),
+                tool_call_id: call.id || call.name,
+              })
+            );
+          }
         }
       }
 
-      sendSSE(res, 'thinking', { stepTitle: 'Finalizing response...' });
+      sendSSE(res, 'thinking', { stepTitle: 'Synthesizing report...' });
       response = await model.invoke(messages);
-    } else {
-      sendSSE(res, 'thinking', { stepTitle: 'Finalizing response...' });
     }
 
-    const contentText = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
-    sendSSE(res, 'token', contentText);
+    const contentText = typeof response.content === 'string' ? response.content : JSON.stringify(response.content || '');
+    sendSSE(res, 'token', contentText || 'Completed processing your request.');
     sendSSE(res, 'done', { success: true });
   } catch (error: any) {
     Logger.error('AI', 'Error during Groq LLM processing:', error?.message || error);

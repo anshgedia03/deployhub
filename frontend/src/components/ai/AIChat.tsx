@@ -240,24 +240,23 @@ export function AIChat() {
             {/* Message Bubble */}
             <div className="max-w-2xl space-y-1">
               {/* Minimalist Loader */}
-              {msg.toolSteps && msg.toolSteps.length > 0 && (
-                <ToolStepLoader steps={msg.toolSteps} isThinking={msg.isThinking} isStreaming={msg.isStreaming} />
-              )}
+              <ToolStepLoader
+                steps={msg.toolSteps || []}
+                isThinking={msg.isThinking}
+                isStreaming={msg.isStreaming}
+              />
 
-              {/* Only show Thinking if there are no tool steps yet */}
-              {msg.isThinking && (!msg.toolSteps || msg.toolSteps.length === 0) && (
-                <ToolStepLoader steps={[]} isThinking={true} isStreaming={msg.isStreaming} />
+              {(msg.sender === 'user' || cleanText(msg.text).length > 0) && (
+                <div
+                  className={`p-3.5 rounded-2xl text-xs sm:text-sm leading-relaxed whitespace-pre-wrap ${
+                    msg.sender === 'user'
+                      ? 'bg-blue-600 text-white rounded-tr-none font-medium shadow-sm'
+                      : 'bg-zinc-900 border border-zinc-800 text-zinc-200 rounded-tl-none'
+                  }`}
+                >
+                  {cleanText(msg.text)}
+                </div>
               )}
-
-              <div
-                className={`p-3.5 rounded-2xl text-xs sm:text-sm leading-relaxed whitespace-pre-wrap ${
-                  msg.sender === 'user'
-                    ? 'bg-blue-600 text-white rounded-tr-none font-medium shadow-sm'
-                    : 'bg-zinc-900 border border-zinc-800 text-zinc-200 rounded-tl-none'
-                }`}
-              >
-                {cleanText(msg.text)}
-              </div>
             </div>
 
             {/* User Avatar */}
