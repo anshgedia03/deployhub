@@ -1058,6 +1058,21 @@ export const createLangChainTools = (
       });
 
       try {
+        // Permission Guard: Only Organization Owners can modify access levels
+        const callingUser: any = await User.findById(userId).select('accountType role');
+        if (!callingUser || callingUser.accountType === 'employee') {
+          sendSSE(res, 'tool_end', {
+            toolName: 'update_project_access_level',
+            stepTitle: TOOL_LOADER_MAP.update_project_access_level,
+            status: 'error',
+            resultSummary: 'Permission denied: Employees cannot modify access levels',
+          });
+          return JSON.stringify({
+            success: false,
+            message: 'Permission Denied: Employees are not authorized to change or assign project access levels. Only organization owners and administrators have this permission.',
+          });
+        }
+
         const cleanUser = employeeIdentifier.trim();
         const cleanProj = projectNameOrId.trim();
         const isAllUsers =
@@ -1215,6 +1230,21 @@ export const createLangChainTools = (
       });
 
       try {
+        // Permission Guard: Only Organization Owners can modify access levels
+        const callingUser: any = await User.findById(userId).select('accountType role');
+        if (!callingUser || callingUser.accountType === 'employee') {
+          sendSSE(res, 'tool_end', {
+            toolName: 'update_employee_org_access',
+            stepTitle: TOOL_LOADER_MAP.update_employee_org_access,
+            status: 'error',
+            resultSummary: 'Permission denied: Employees cannot modify access levels',
+          });
+          return JSON.stringify({
+            success: false,
+            message: 'Permission Denied: Employees are not authorized to change organization access levels. Only organization owners have this permission.',
+          });
+        }
+
         const cleanUser = employeeIdentifier.trim();
         const regex = new RegExp(`^${cleanUser}$`, 'i');
 
@@ -1538,6 +1568,14 @@ export const processAIQuery = async (
       (lowerQuery.includes('full access') && (lowerQuery.includes('user') || lowerQuery.includes('project') || lowerQuery.includes('this')));
 
     if (isAccessMutation) {
+      // Permission Guard: Employees cannot modify access levels
+      const callingUser: any = await User.findById(userId).select('accountType role');
+      if (!callingUser || callingUser.accountType === 'employee') {
+        sendSSE(res, 'thinking', { stepTitle: 'Checking permissions...' });
+        await completeAIResponse('⛔ **Permission Denied**: Employees are not authorized to modify or grant access levels. Only organization owners and administrators can change access permissions.');
+        return;
+      }
+
       const { project, employee } = parseContextEntities(query);
 
       let targetProject = project || selectedProjects[0] || '';
@@ -1955,6 +1993,7 @@ export const processAIQuery = async (
           '   - For semantic search across documentation & build logs -> invoke `search_vector_knowledge`.\n' +
           '   - When a specific project is selected in context or named, invoke `get_project_details` to inspect it.\n' +
           '5. AUTOMATION ACTIONS & CONTEXT PARSING (HIGHEST PRIORITY):\n' +
+          '   - EMPLOYEE PERMISSION RESTRICTION: Employees (`accountType === "employee"`) are strictly FORBIDDEN from modifying access levels, granting access, or revoking access for any user or project. If an employee requests to change access levels, you must refuse with: "Permission Denied: Employees are not authorized to modify access levels. Only organization owners and administrators have this permission."\n' +
           '   - When the user asks to give/grant/revoke access on a project to "all users", "all employees", "everyone", "all members", or "our organization" (e.g. "give access of this project to all users of our organization", "grant access on project two to everyone"):\n' +
           '     YOU MUST INVOKE `update_project_access_level` with { employeeIdentifier: "all", projectNameOrId: project, accessLevel: "full" | "limited" | "none" }.\n' +
           '   - When the user query includes `[Selected Context: ...]` (e.g. `[Selected Context: PROJECT: two [RUNNING], EMPLOYEE: anshZIG [LIMITED]]`) or refers to "this user", "this project", "them", "it":\n' +
