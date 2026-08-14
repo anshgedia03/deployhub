@@ -65,17 +65,76 @@ export const RocketLaunchAnimation: React.FC<RocketLaunchAnimationProps> = ({
     y: 0,
   });
 
+  const onAnimationCompleteRef = useRef(onAnimationComplete);
+  onAnimationCompleteRef.current = onAnimationComplete;
+
+  const onImpactRef = useRef(onImpact);
+  onImpactRef.current = onImpact;
+
   const animFrameRef = useRef<number | null>(null);
   const particleIdRef = useRef<number>(0);
-  const startTimeRef = useRef<number>(0);
-  const pathPointsRef = useRef<Point[]>([]);
+  const particlesRef = useRef<Particle[]>([]);
 
-  // Check for prefers-reduced-motion
-  const prefersReducedMotion = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // Keep particles ref in sync
+  particlesRef.current = particles;
 
-  const startAnimation = useCallback(() => {
+  const handleCollision = useCallback((point: Point) => {
+    setPhase('collided');
+    if (onImpactRef.current) {
+      onImpactRef.current();
+    }
+
+    // Spawn 28 radial impact sparks
+    const impactSparks: Particle[] = [];
+    const colors = ['#00F5FF', '#38BDF8', '#60A5FA', '#F472B6', '#FFFFFF', '#A5F3FC'];
+    for (let i = 0; i < 28; i++) {
+      const angle = (i / 28) * Math.PI * 2 + (Math.random() - 0.5) * 0.2;
+      const speed = Math.random() * 6 + 2.5;
+      impactSparks.push({
+        id: ++particleIdRef.current,
+        x: point.x,
+        y: point.y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        size: Math.random() * 5 + 2.5,
+        opacity: 1,
+        color: colors[Math.floor(Math.random() * colors.length)] || '#00F5FF',
+      });
+    }
+    setParticles((prev) => [...prev, ...impactSparks]);
+
+    // Step 4: Traveling border energy pulse (2 rounds)
+    setTimeout(() => {
+      setPhase('energy');
+      setEnergyProgress(0);
+
+      const ENERGY_DURATION = 1400; // 2 complete loops around input field
+      const startEnergyTime = performance.now();
+
+      const animateEnergy = (now: number) => {
+        const elapsed = now - startEnergyTime;
+        const progress = Math.min(1, elapsed / ENERGY_DURATION);
+        setEnergyProgress(progress);
+
+        if (progress < 1) {
+          animFrameRef.current = requestAnimationFrame(animateEnergy);
+        } else {
+          setPhase('complete');
+          setTimeout(() => {
+            setPhase('idle');
+            setParticles([]);
+            onAnimationCompleteRef.current();
+          }, 150);
+        }
+      };
+
+      animFrameRef.current = requestAnimationFrame(animateEnergy);
+    }, 70);
+  }, []);
+
+  const runLaunchSequence = useCallback(() => {
     if (!containerRef.current || !buttonRef.current || !inputRef.current) {
-      onAnimationComplete();
+      onAnimationCompleteRef.current();
       return;
     }
 
@@ -102,40 +161,23 @@ export const RocketLaunchAnimation: React.FC<RocketLaunchAnimationProps> = ({
       y: inRect.top - containerRect.top,
     });
 
+    // Check for reduced motion preference
+    const prefersReducedMotion = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     if (prefersReducedMotion) {
-      setPhase('collided');
-      setTimeout(() => {
-        setPhase('energy');
-        setEnergyProgress(0);
-        const startTime = performance.now();
-        const duration = 1200;
-
-        const step = (now: number) => {
-          const elapsed = now - startTime;
-          const progress = Math.min(1, elapsed / duration);
-          setEnergyProgress(progress);
-          if (progress < 1) {
-            requestAnimationFrame(step);
-          } else {
-            setPhase('complete');
-            setTimeout(onAnimationComplete, 200);
-          }
-        };
-        requestAnimationFrame(step);
-      }, 150);
+      handleCollision(targetPoint);
       return;
     }
 
-    // Step 1: Pre-launch downward compression (120ms)
+    // Step 1: Pre-launch downward compression (100ms)
     setPhase('charging');
     setRocketPos({
       x: startPoint.x,
       y: startPoint.y + 4,
       angle: -30,
-      scale: 0.85,
+      scale: 0.88,
     });
 
-    setTimeout(() => {
+    const chargingTimer = setTimeout(() => {
       // Step 2: Launch & Flight calculation
       setPhase('flying');
 
@@ -148,28 +190,26 @@ export const RocketLaunchAnimation: React.FC<RocketLaunchAnimationProps> = ({
       // Arc up and right towards the center-top
       const wp1 = {
         x: W * 0.45,
-        y: Math.max(20, H * 0.15)
+        y: Math.max(30, H * 0.15),
       };
       
       // Swoop down to the center-left to create a loop
       const wp2 = {
-        x: W * 0.25,
-        y: H * 0.55
+        x: W * 0.22,
+        y: H * 0.55,
       };
       
       // Pull up and right towards the top-right corner
       const wp3 = {
-        x: Math.min(W - 40, W * 0.8),
-        y: Math.max(40, H * 0.25)
+        x: Math.min(W - 40, W * 0.82),
+        y: Math.max(40, H * 0.22),
       };
       
-      // Dive into the target
+      // Dive directly into the target button
       const wp4 = { ...targetPoint };
 
       const waypoints = [wp0, wp1, wp2, wp3, wp4];
-      pathPointsRef.current = waypoints;
-      startTimeRef.current = performance.now();
-
+      const flightStartTime = performance.now();
       const FLIGHT_DURATION = 1450; // Total smooth flight time
 
       const getSplinePoint = (globalT: number) => {
@@ -179,16 +219,16 @@ export const RocketLaunchAnimation: React.FC<RocketLaunchAnimationProps> = ({
         const index = Math.min(Math.floor(floatIndex), numSegments - 1);
         const localT = floatIndex - index;
 
-        const p0 = waypoints[Math.max(index - 1, 0)];
-        const p1 = waypoints[index];
-        const p2 = waypoints[Math.min(index + 1, waypoints.length - 1)];
-        const p3 = waypoints[Math.min(index + 2, waypoints.length - 1)];
+        const p0 = waypoints[Math.max(index - 1, 0)]!;
+        const p1 = waypoints[index]!;
+        const p2 = waypoints[Math.min(index + 1, waypoints.length - 1)]!;
+        const p3 = waypoints[Math.min(index + 2, waypoints.length - 1)]!;
 
         return getCatmullRomPoint(p0, p1, p2, p3, localT);
       };
 
       const animateFlight = (now: number) => {
-        const elapsed = now - startTimeRef.current;
+        const elapsed = now - flightStartTime;
         const rawT = Math.min(1, elapsed / FLIGHT_DURATION);
         // Smoothstep easing
         const t = rawT * rawT * (3 - 2 * rawT);
@@ -243,61 +283,10 @@ export const RocketLaunchAnimation: React.FC<RocketLaunchAnimationProps> = ({
       };
 
       animFrameRef.current = requestAnimationFrame(animateFlight);
-    }, 120);
-  }, [containerRef, buttonRef, inputRef, prefersReducedMotion, onAnimationComplete]);
+    }, 100);
 
-  // Step 3: Collision, Impact Flash & Particle Burst
-  const handleCollision = (point: Point) => {
-    setPhase('collided');
-    if (onImpact) onImpact();
-
-    // Spawn 24 radial impact sparks
-    const impactSparks: Particle[] = [];
-    const colors = ['#00F5FF', '#38BDF8', '#60A5FA', '#F472B6', '#FFFFFF'];
-    for (let i = 0; i < 24; i++) {
-      const angle = (i / 24) * Math.PI * 2;
-      const speed = Math.random() * 5 + 2;
-      impactSparks.push({
-        id: ++particleIdRef.current,
-        x: point.x,
-        y: point.y,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed,
-        size: Math.random() * 5 + 2,
-        opacity: 1,
-        color: colors[Math.floor(Math.random() * colors.length)] || '#00F5FF',
-      });
-    }
-    setParticles((prev) => [...prev, ...impactSparks]);
-
-    // Step 4: Start traveling border energy pulse (2 rounds)
-    setTimeout(() => {
-      setPhase('energy');
-      setEnergyProgress(0);
-
-      const ENERGY_DURATION = 1500; // 2 complete loops around input field
-      const startEnergyTime = performance.now();
-
-      const animateEnergy = (now: number) => {
-        const elapsed = now - startEnergyTime;
-        const progress = Math.min(1, elapsed / ENERGY_DURATION);
-        setEnergyProgress(progress);
-
-        if (progress < 1) {
-          animFrameRef.current = requestAnimationFrame(animateEnergy);
-        } else {
-          setPhase('complete');
-          setTimeout(() => {
-            setPhase('idle');
-            setParticles([]);
-            onAnimationComplete();
-          }, 200);
-        }
-      };
-
-      animFrameRef.current = requestAnimationFrame(animateEnergy);
-    }, 80);
-  };
+    return () => clearTimeout(chargingTimer);
+  }, [containerRef, buttonRef, inputRef, handleCollision]);
 
   // Particle Physics Update Loop
   useEffect(() => {
@@ -310,7 +299,7 @@ export const RocketLaunchAnimation: React.FC<RocketLaunchAnimationProps> = ({
             ...p,
             x: p.x + p.vx,
             y: p.y + p.vy,
-            opacity: p.opacity - 0.04,
+            opacity: p.opacity - 0.045,
             size: Math.max(0.5, p.size - 0.08),
           }))
           .filter((p) => p.opacity > 0)
@@ -320,17 +309,21 @@ export const RocketLaunchAnimation: React.FC<RocketLaunchAnimationProps> = ({
     return () => clearInterval(interval);
   }, [phase]);
 
-  // Trigger when isLaunching prop changes
+  // Trigger when isLaunching prop becomes true
   useEffect(() => {
     if (isLaunching && phase === 'idle') {
-      startAnimation();
+      runLaunchSequence();
     }
+  }, [isLaunching, phase, runLaunchSequence]);
+
+  // Clean up animation frames on unmount
+  useEffect(() => {
     return () => {
       if (animFrameRef.current) {
         cancelAnimationFrame(animFrameRef.current);
       }
     };
-  }, [isLaunching, phase, startAnimation]);
+  }, []);
 
   if (phase === 'idle') return null;
 
@@ -366,7 +359,7 @@ export const RocketLaunchAnimation: React.FC<RocketLaunchAnimationProps> = ({
             left: `${rocketPos.x}px`,
             top: `${rocketPos.y}px`,
             transform: `translate(-50%, -50%) rotate(${rocketPos.angle}deg) scale(${rocketPos.scale})`,
-            transition: phase === 'charging' ? 'transform 120ms ease-in' : 'none',
+            transition: phase === 'charging' ? 'transform 100ms ease-in' : 'none',
           }}
         >
           {/* Neon Glow halo */}
