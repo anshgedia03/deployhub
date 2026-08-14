@@ -59,9 +59,9 @@ export const createLangChainTools = (userId: string, organizationId: string, res
     name: 'get_organization_employees',
     description: 'Fetch the complete list and total count of members/employees in this organization (owner + employees).',
     schema: z.object({
-      roleFilter: z.string().optional().describe('Optional role filter (e.g. Developer, QA, Member)'),
+      roleFilter: z.string().nullable().optional().describe('Optional role filter (e.g. Developer, QA, Member)'),
     }),
-    func: async ({ roleFilter }) => {
+    func: async ({ roleFilter }: { roleFilter?: string | null }) => {
       sendSSE(res, 'tool_start', {
         toolName: 'get_organization_employees',
         stepTitle: TOOL_LOADER_MAP.get_organization_employees,
@@ -69,6 +69,7 @@ export const createLangChainTools = (userId: string, organizationId: string, res
       });
 
       try {
+        const cleanRole = roleFilter?.trim() || undefined;
         const [orgOwner, employees] = await Promise.all([
           User.findById(organizationId).select('username email accountType role createdAt'),
           User.find({
@@ -90,7 +91,7 @@ export const createLangChainTools = (userId: string, organizationId: string, res
         }
 
         for (const emp of employees) {
-          if (!roleFilter || emp.role?.toLowerCase().includes(roleFilter.toLowerCase())) {
+          if (!cleanRole || emp.role?.toLowerCase().includes(cleanRole.toLowerCase())) {
             allMembers.push({
               id: emp._id,
               username: emp.username,
@@ -131,9 +132,9 @@ export const createLangChainTools = (userId: string, organizationId: string, res
     name: 'get_employee_details',
     description: 'Lookup an individual employee by username or email and see their profile, role, and assigned project access levels.',
     schema: z.object({
-      identifier: z.string().describe('Username or email of the employee to look up'),
+      identifier: z.string().nullable().optional().describe('Username or email of the employee to look up'),
     }),
-    func: async ({ identifier }) => {
+    func: async ({ identifier }: { identifier?: string | null }) => {
       sendSSE(res, 'tool_start', {
         toolName: 'get_employee_details',
         stepTitle: TOOL_LOADER_MAP.get_employee_details,
@@ -141,7 +142,18 @@ export const createLangChainTools = (userId: string, organizationId: string, res
       });
 
       try {
-        const regex = new RegExp(`^${identifier.trim()}$`, 'i');
+        if (!identifier || !identifier.trim()) {
+          sendSSE(res, 'tool_end', {
+            toolName: 'get_employee_details',
+            stepTitle: TOOL_LOADER_MAP.get_employee_details,
+            status: 'completed',
+            resultSummary: 'No employee specified',
+          });
+          return JSON.stringify({ found: false, message: 'Please specify an employee username or email.' });
+        }
+
+        const cleanId = identifier.trim();
+        const regex = new RegExp(`^${cleanId}$`, 'i');
         const user = await User.findOne({
           $and: [
             { $or: [{ organizationId: organizationId }, { _id: organizationId }] },
@@ -215,10 +227,10 @@ export const createLangChainTools = (userId: string, organizationId: string, res
     name: 'get_user_deployments',
     description: 'Fetch all projects/deployments for this organization, including their status (running/building/stopped/failed), public URLs, ports, git repository info, AND which employees/users have access to each project with their access levels.',
     schema: z.object({
-      statusFilter: z.enum(['running', 'building', 'stopped', 'failed', 'all']).optional().describe('Filter by deployment status'),
-      searchFilter: z.string().optional().describe('Filter by project name'),
+      statusFilter: z.enum(['running', 'building', 'stopped', 'failed', 'all']).nullable().optional().describe('Filter by deployment status'),
+      searchFilter: z.string().nullable().optional().describe('Filter by project name'),
     }),
-    func: async ({ statusFilter, searchFilter }) => {
+    func: async ({ statusFilter, searchFilter }: { statusFilter?: any; searchFilter?: string | null }) => {
       sendSSE(res, 'tool_start', {
         toolName: 'get_user_deployments',
         stepTitle: TOOL_LOADER_MAP.get_user_deployments,
@@ -234,8 +246,8 @@ export const createLangChainTools = (userId: string, organizationId: string, res
           query.status = statusFilter;
         }
 
-        if (searchFilter) {
-          query.projectName = { $regex: searchFilter, $options: 'i' };
+        if (searchFilter && searchFilter.trim()) {
+          query.projectName = { $regex: searchFilter.trim(), $options: 'i' };
         }
 
         const deployments = await Deployment.find(query).sort({ createdAt: -1 });
@@ -309,9 +321,9 @@ export const createLangChainTools = (userId: string, organizationId: string, res
     name: 'get_project_details',
     description: 'Get deep details about a SINGLE specific project: git repository, branch, port, public URL, status, and which employees have access. Do NOT use this tool if the user wants all projects or a general project list without specifying a single project name.',
     schema: z.object({
-      projectNameOrId: z.string().describe('The specific project name or deployment ID to inspect'),
+      projectNameOrId: z.string().nullable().optional().describe('The specific project name or deployment ID to inspect'),
     }),
-    func: async ({ projectNameOrId }) => {
+    func: async ({ projectNameOrId }: { projectNameOrId?: string | null }) => {
       sendSSE(res, 'tool_start', {
         toolName: 'get_project_details',
         stepTitle: TOOL_LOADER_MAP.get_project_details,
@@ -319,13 +331,24 @@ export const createLangChainTools = (userId: string, organizationId: string, res
       });
 
       try {
+        if (!projectNameOrId || !projectNameOrId.trim()) {
+          sendSSE(res, 'tool_end', {
+            toolName: 'get_project_details',
+            stepTitle: TOOL_LOADER_MAP.get_project_details,
+            status: 'completed',
+            resultSummary: 'No project name specified',
+          });
+          return JSON.stringify({ found: false, message: 'Please specify a project name or ID.' });
+        }
+
+        const cleanProj = projectNameOrId.trim();
         const deployment = await Deployment.findOne({
           $and: [
             { $or: [{ organizationId }, { userId: organizationId }] },
             {
               $or: [
-                { projectName: { $regex: `^${projectNameOrId.trim()}$`, $options: 'i' } },
-                { deploymentId: projectNameOrId.trim() }
+                { projectName: { $regex: `^${cleanProj}$`, $options: 'i' } },
+                { deploymentId: cleanProj }
               ]
             }
           ]
@@ -336,9 +359,9 @@ export const createLangChainTools = (userId: string, organizationId: string, res
             toolName: 'get_project_details',
             stepTitle: TOOL_LOADER_MAP.get_project_details,
             status: 'completed',
-            resultSummary: `Project not found: ${projectNameOrId}`,
+            resultSummary: `Project not found: ${cleanProj}`,
           });
-          return JSON.stringify({ found: false, message: `Project '${projectNameOrId}' not found.` });
+          return JSON.stringify({ found: false, message: `Project '${cleanProj}' not found.` });
         }
 
         // Populate employee names in accessControl
@@ -395,9 +418,9 @@ export const createLangChainTools = (userId: string, organizationId: string, res
     name: 'get_deployment_logs',
     description: 'Retrieve recent build or runtime container logs for a project to troubleshoot build failures, crashes, or status.',
     schema: z.object({
-      projectNameOrId: z.string().describe('Project name or deployment ID to get logs for'),
+      projectNameOrId: z.string().nullable().optional().describe('Project name or deployment ID to get logs for'),
     }),
-    func: async ({ projectNameOrId }) => {
+    func: async ({ projectNameOrId }: { projectNameOrId?: string | null }) => {
       sendSSE(res, 'tool_start', {
         toolName: 'get_deployment_logs',
         stepTitle: TOOL_LOADER_MAP.get_deployment_logs,
@@ -405,13 +428,24 @@ export const createLangChainTools = (userId: string, organizationId: string, res
       });
 
       try {
+        if (!projectNameOrId || !projectNameOrId.trim()) {
+          sendSSE(res, 'tool_end', {
+            toolName: 'get_deployment_logs',
+            stepTitle: TOOL_LOADER_MAP.get_deployment_logs,
+            status: 'completed',
+            resultSummary: 'No project specified',
+          });
+          return JSON.stringify({ found: false, message: 'Please specify a project name to view logs.' });
+        }
+
+        const cleanProj = projectNameOrId.trim();
         const deployment = await Deployment.findOne({
           $and: [
             { $or: [{ organizationId }, { userId: organizationId }] },
             {
               $or: [
-                { projectName: { $regex: `^${projectNameOrId.trim()}$`, $options: 'i' } },
-                { deploymentId: projectNameOrId.trim() }
+                { projectName: { $regex: `^${cleanProj}$`, $options: 'i' } },
+                { deploymentId: cleanProj }
               ]
             }
           ]
@@ -422,9 +456,9 @@ export const createLangChainTools = (userId: string, organizationId: string, res
             toolName: 'get_deployment_logs',
             stepTitle: TOOL_LOADER_MAP.get_deployment_logs,
             status: 'completed',
-            resultSummary: `Project not found: ${projectNameOrId}`,
+            resultSummary: `Project not found: ${cleanProj}`,
           });
-          return JSON.stringify({ found: false, message: `Project '${projectNameOrId}' not found.` });
+          return JSON.stringify({ found: false, message: `Project '${cleanProj}' not found.` });
         }
 
         let containerLogs = '';
@@ -476,9 +510,9 @@ export const createLangChainTools = (userId: string, organizationId: string, res
     name: 'get_container_health',
     description: 'Inspect live Docker containers on the host machine to check running state, container IDs, ports, and health.',
     schema: z.object({
-      containerName: z.string().optional().describe('Optional container name filter'),
+      containerName: z.string().nullable().optional().describe('Optional container name filter'),
     }),
-    func: async ({ containerName }) => {
+    func: async ({ containerName }: { containerName?: string | null }) => {
       sendSSE(res, 'tool_start', {
         toolName: 'get_container_health',
         stepTitle: TOOL_LOADER_MAP.get_container_health,
@@ -487,9 +521,10 @@ export const createLangChainTools = (userId: string, organizationId: string, res
 
       try {
         const containers = await docker.listContainers({ all: true });
+        const cleanName = containerName?.trim().toLowerCase();
         const filtered = containers.filter(c => {
-          if (!containerName) return true;
-          return c.Names.some(name => name.toLowerCase().includes(containerName.toLowerCase()));
+          if (!cleanName) return true;
+          return c.Names.some(name => name.toLowerCase().includes(cleanName));
         });
 
         const result = {
@@ -528,9 +563,9 @@ export const createLangChainTools = (userId: string, organizationId: string, res
     name: 'search_vector_knowledge',
     description: 'Perform RAG vector search in Qdrant database to retrieve relevant build log chunks, system docs, and project deployment histories.',
     schema: z.object({
-      searchQuery: z.string().describe('Semantic query string to match in Qdrant vector index'),
+      searchQuery: z.string().nullable().optional().describe('Semantic query string to match in Qdrant vector index'),
     }),
-    func: async ({ searchQuery }) => {
+    func: async ({ searchQuery }: { searchQuery?: string | null }) => {
       sendSSE(res, 'tool_start', {
         toolName: 'search_vector_knowledge',
         stepTitle: TOOL_LOADER_MAP.search_vector_knowledge,
@@ -538,7 +573,8 @@ export const createLangChainTools = (userId: string, organizationId: string, res
       });
 
       try {
-        const chunks = await searchVectorKnowledge(searchQuery, organizationId, 4);
+        const cleanQuery = searchQuery?.trim() || '';
+        const chunks = cleanQuery ? await searchVectorKnowledge(cleanQuery, organizationId, 4) : [];
 
         sendSSE(res, 'tool_end', {
           toolName: 'search_vector_knowledge',
@@ -784,21 +820,21 @@ export const processAIQuery = async (
     return;
   }
 
-  // Resolve target model
+  // Resolve target model for Groq API
   let targetModelName = 'llama-3.1-8b-instant';
-  if (selectedModel) {
-    if (selectedModel === 'gpt-oss-20b' || selectedModel === 'openai/gpt-oss-20b') {
-      targetModelName = 'openai/gpt-oss-20b';
-    } else if (selectedModel === 'groq/compound' || selectedModel === 'compound') {
-      targetModelName = 'groq/compound';
-    } else if (selectedModel === 'llama-3.3-70b-versatile') {
-      targetModelName = 'llama-3.3-70b-versatile';
-    } else {
-      targetModelName = selectedModel;
-    }
+  if (selectedModel === 'gpt-oss-20b' || selectedModel === 'openai/gpt-oss-20b') {
+    targetModelName = 'llama-3.3-70b-versatile';
+  } else if (selectedModel === 'groq/compound' || selectedModel === 'compound') {
+    targetModelName = 'llama-3.3-70b-versatile';
+  } else if (selectedModel === 'llama-3.3-70b-versatile') {
+    targetModelName = 'llama-3.3-70b-versatile';
+  } else if (selectedModel === 'llama-3.1-8b-instant') {
+    targetModelName = 'llama-3.1-8b-instant';
+  } else if (selectedModel) {
+    targetModelName = selectedModel;
   }
 
-  // Full LangChain Agent with Groq (with auto fallback on rate limit)
+  // Full LangChain Agent with Groq (with auto fallback on rate limit & schema errors)
   try {
     const runAgentWithModel = async (modelName: string) => {
       const model = new ChatGroq({
@@ -815,6 +851,7 @@ export const processAIQuery = async (
           '2. ZERO HALLUCINATIONS & NO FAKE DATA: NEVER invent, fabricate, hallucinate, or provide fictional sample data (such as "Project 1", "John", "Jane", "Alice", "Bob", etc.). You must ALWAYS use tool output data. If the database or tool returns no projects, deployments, or members, state truthfully and clearly that no records exist in the organization rather than generating mock/fictional data.\n' +
           '3. ACCURATE TOOL SELECTION:\n' +
           '   - When the user asks for a list, table, or overview of projects and who can access them, ALWAYS invoke `get_user_deployments`. It returns all projects along with their `accessibleBy` and `assignedEmployees` details.\n' +
+          '   - When the user asks for members or employees in the organization, invoke `get_organization_employees`.\n' +
           '   - Only invoke `get_project_details` when the user explicitly names a single specific project to inspect.\n' +
           '4. OFF-TOPIC REFUSAL: If the user asks about unrelated topics (e.g. cooking recipes, creative storytelling, general trivia, medical/legal advice, unrelated non-DevOps topics), politely decline with this friendly response:\n' +
           '   "I am specialized in DeployHub cloud infrastructure, deployments, Docker telemetry, and organization management. How can I help with your projects or team today?"\n' +
@@ -867,19 +904,14 @@ export const processAIQuery = async (
       response = await runAgentWithModel(targetModelName);
     } catch (modelErr: any) {
       const errStr = modelErr?.message || String(modelErr);
-      Logger.warn('AI', `Model ${targetModelName} failed (${errStr}). Attempting fallback routing...`);
+      Logger.warn('AI', `Primary model ${targetModelName} encountered an issue (${errStr}). Attempting failover...`);
 
-      // If rate limited (429) or model not recognized, try llama-3.3-70b-versatile or fallback execution
-      if (targetModelName !== 'llama-3.3-70b-versatile' && (errStr.includes('429') || errStr.includes('rate_limit') || errStr.includes('model_not_found') || errStr.includes('404'))) {
-        try {
-          response = await runAgentWithModel('llama-3.3-70b-versatile');
-        } catch (fallbackErr: any) {
-          Logger.warn('AI', 'Secondary model also limited. Falling back to local intelligent agent execution...');
-          await executeIntelligentLocalFallback();
-          return;
-        }
-      } else {
-        Logger.warn('AI', 'Executing intelligent local fallback...');
+      // If rate limited or error, try the other tier model
+      const backupModel = targetModelName === 'llama-3.1-8b-instant' ? 'llama-3.3-70b-versatile' : 'llama-3.1-8b-instant';
+      try {
+        response = await runAgentWithModel(backupModel);
+      } catch (backupErr: any) {
+        Logger.warn('AI', 'Backup model also unavailable. Executing intelligent local fallback...');
         await executeIntelligentLocalFallback();
         return;
       }
