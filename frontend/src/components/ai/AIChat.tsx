@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, RefreshCw, MessageSquarePlus, Rocket, ChevronDown, Sparkles, Cpu, Layers, Check } from 'lucide-react';
+import { Send, Bot, User, RefreshCw, MessageSquarePlus, Rocket, ChevronDown, Sparkles, Cpu, Layers, Check, Plus, Zap, Shield, UserCheck, X, FolderGit2 } from 'lucide-react';
 import { getApiUrl } from '@/config/api';
 import { toast } from 'sonner';
 import ReactMarkdown from 'react-markdown';
@@ -10,6 +10,7 @@ import { ToolStepLoader, ToolStep } from './ToolStepLoader';
 import { ChatHistorySidebar, ChatSession } from './ChatHistorySidebar';
 import { NewChatModal } from './NewChatModal';
 import { RocketLaunchAnimation } from './RocketLaunchAnimation';
+import { AutomationSelectionModal, SelectedEntity } from './AutomationSelectionModal';
 
 export interface AIModelOption {
   id: string;
@@ -29,24 +30,24 @@ export const AVAILABLE_MODELS: AIModelOption[] = [
     provider: 'Groq',
     badge: 'Fast & Instant',
     badgeColor: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
-    description: 'Ultra-fast low latency 8B model for quick DevOps tasks',
+    description: 'Ultra-fast sub-second latency for real-time queries',
   },
   {
     id: 'gpt-oss-20b',
     name: 'gpt-oss-20b',
-    label: 'GPT-OSS 20B',
+    label: 'GPT OSS 20B Reasoning',
     provider: 'OpenAI / OSS',
     badge: 'Multi-Step',
-    badgeColor: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
-    description: 'High-accuracy open model for multi-step reasoning & tool synthesis',
+    badgeColor: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20',
+    description: 'Advanced reasoning, step-by-step tool plan execution',
   },
   {
     id: 'groq/compound',
     name: 'groq/compound',
-    label: 'Groq Compound',
-    provider: 'Groq AI',
-    badge: 'Compound',
-    badgeColor: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20',
+    label: 'Groq Compound System',
+    provider: 'Groq Compound',
+    badge: 'Multi-Agent',
+    badgeColor: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
     description: 'Multi-agent composite routing with tool specialization',
   },
   {
@@ -85,9 +86,12 @@ export function AIChat() {
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
 
-  // Rocket Launch Animation States & Refs
+  // Rocket Launch Animation & Automation Mode States & Refs
   const [isRocketLaunching, setIsRocketLaunching] = useState(false);
   const [isInputShaking, setIsInputShaking] = useState(false);
+  const [isAutomationMode, setIsAutomationMode] = useState(false);
+  const [selectedEntities, setSelectedEntities] = useState<SelectedEntity[]>([]);
+  const [isContextModalOpen, setIsContextModalOpen] = useState(false);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const rocketButtonRef = useRef<HTMLButtonElement>(null);
   const inputWrapperRef = useRef<HTMLDivElement>(null);
@@ -312,6 +316,14 @@ export function AIChat() {
     setIsLoading(true);
 
     try {
+      let finalPrompt = query;
+      if (selectedEntities.length > 0) {
+        const contextSummary = selectedEntities
+          .map((e) => `${e.type.toUpperCase()}: ${e.title}${e.subtitle ? ` (${e.subtitle})` : ''}${e.badge ? ` [${e.badge}]` : ''}`)
+          .join(', ');
+        finalPrompt = `[Selected Context: ${contextSummary}]\n\n${query}`;
+      }
+
       const response = await fetch(getApiUrl('/ai/chat'), {
         method: 'POST',
         headers: {
@@ -319,7 +331,7 @@ export function AIChat() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          prompt: query,
+          prompt: finalPrompt,
           sessionId: currentSessionId,
           model: selectedModel,
         }),
@@ -471,7 +483,13 @@ export function AIChat() {
         {/* Rocket Launch Overlay Animation */}
         <RocketLaunchAnimation
           isLaunching={isRocketLaunching}
-          onAnimationComplete={() => setIsRocketLaunching(false)}
+          onAnimationComplete={() => {
+            setIsRocketLaunching(false);
+            setIsAutomationMode(true);
+            toast.success('⚡ Automation Mode Active! Click (+) for quick actions.', {
+              duration: 3500,
+            });
+          }}
           onImpact={handleRocketImpact}
           containerRef={chatContainerRef}
           buttonRef={rocketButtonRef}
@@ -728,6 +746,73 @@ export function AIChat() {
 
         {/* Input Bar */}
         <div className="p-4 border-t border-zinc-800 bg-[#0c0c0e]">
+          {/* Automation Mode Active Banner */}
+          {isAutomationMode && (
+            <div className="mb-2.5 max-w-3xl mx-auto flex items-center justify-between px-3.5 py-1.5 rounded-lg bg-cyan-950/40 border border-cyan-500/30 text-cyan-300 text-xs shadow-[0_0_15px_rgba(6,182,212,0.15)] animate-in fade-in slide-in-from-bottom-1">
+              <div className="flex items-center gap-2 min-w-0 truncate">
+                <Zap className="w-3.5 h-3.5 text-cyan-400 animate-pulse shrink-0" />
+                <span className="font-semibold text-[11px] sm:text-xs">⚡ Automation Mode Active</span>
+                <span className="hidden sm:inline text-zinc-400 text-[10px] truncate">— Click (+) to select projects & employees</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAutomationMode(false);
+                  toast.info('Automation Mode deactivated');
+                }}
+                className="text-[11px] font-medium text-zinc-400 hover:text-zinc-200 underline cursor-pointer shrink-0 ml-2"
+              >
+                Exit Mode
+              </button>
+            </div>
+          )}
+
+          {/* Selected Entities Single Row Badge Bar directly on top of input text */}
+          {selectedEntities.length > 0 && (
+            <div className="mb-2 max-w-3xl mx-auto flex items-center gap-2 overflow-x-auto flex-nowrap py-1 scrollbar-thin scrollbar-thumb-zinc-800 animate-in fade-in slide-in-from-bottom-1">
+              <span className="text-[10px] uppercase font-bold text-cyan-400/80 tracking-wider shrink-0 mr-1 flex items-center gap-1">
+                <Sparkles className="w-3 h-3 text-cyan-400" /> Context ({selectedEntities.length}):
+              </span>
+              {selectedEntities.map((entity) => (
+                <div
+                  key={entity.id}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border shrink-0 transition-all ${
+                    entity.type === "project"
+                      ? "bg-cyan-950/60 border-cyan-500/40 text-cyan-200 shadow-[0_0_8px_rgba(6,182,212,0.15)]"
+                      : "bg-blue-950/60 border-blue-500/40 text-blue-200 shadow-[0_0_8px_rgba(59,130,246,0.15)]"
+                  }`}
+                >
+                  {entity.type === "project" ? (
+                    <FolderGit2 className="w-3 h-3 text-cyan-400 shrink-0" />
+                  ) : (
+                    <User className="w-3 h-3 text-blue-400 shrink-0" />
+                  )}
+                  <span className="truncate max-w-[140px] font-semibold">{entity.title}</span>
+                  {entity.badge && (
+                    <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-black/40 text-zinc-300 font-mono">
+                      {entity.badge}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedEntities((prev) => prev.filter((e) => e.id !== entity.id))}
+                    className="ml-0.5 text-zinc-400 hover:text-white transition-colors cursor-pointer"
+                    title="Remove"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => setSelectedEntities([])}
+                className="text-[11px] text-zinc-500 hover:text-zinc-300 underline whitespace-nowrap shrink-0 px-1 cursor-pointer"
+              >
+                Clear all
+              </button>
+            </div>
+          )}
+
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -756,19 +841,47 @@ export function AIChat() {
                 isInputShaking ? 'animate-input-shake' : ''
               }`}
             >
+              {/* (+) Automation Context Modal Trigger Inside Input (Left Side) */}
+              {isAutomationMode && (
+                <button
+                  type="button"
+                  onClick={() => setIsContextModalOpen(true)}
+                  className="absolute left-2.5 top-1/2 -translate-y-1/2 z-20 flex h-7 w-7 items-center justify-center rounded-full bg-cyan-500/20 hover:bg-cyan-500/35 text-cyan-300 border border-cyan-400/50 shadow-[0_0_10px_rgba(6,182,212,0.3)] transition-all active:scale-95 cursor-pointer group"
+                  title="Open Project & Employee Context Selector"
+                >
+                  <Plus className="w-3.5 h-3.5 transition-transform duration-200 group-hover:rotate-90 text-cyan-200" />
+                </button>
+              )}
+
               <input
                 type="text"
                 value={inputPrompt}
                 onChange={(e) => setInputPrompt(e.target.value)}
-                placeholder={activeSessionId ? "Message DeployHub AI..." : "Click '+ New Chat' or type here to start..."}
+                placeholder={
+                  isAutomationMode
+                    ? selectedEntities.length > 0
+                      ? `Automation: Instruct AI on ${selectedEntities.map(e => e.title).join(', ')}...`
+                      : "Automation Active: Click (+) to select projects & employees..."
+                    : activeSessionId
+                    ? "Message DeployHub AI..."
+                    : "Click '+ New Chat' or type here to start..."
+                }
                 disabled={isLoading}
-                className="w-full bg-zinc-900 border border-zinc-800 focus:border-zinc-700 rounded-full px-5 py-3.5 pr-14 text-xs sm:text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-700 transition-all disabled:opacity-50"
+                className={`w-full bg-zinc-900 border ${
+                  isAutomationMode
+                    ? 'border-cyan-500/40 focus:border-cyan-400/80 shadow-[0_0_15px_rgba(6,182,212,0.12)]'
+                    : 'border-zinc-800 focus:border-zinc-700'
+                } rounded-full ${
+                  isAutomationMode ? 'pl-11 pr-14' : 'px-5 pr-14'
+                } py-3.5 text-xs sm:text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-1 ${
+                  isAutomationMode ? 'focus:ring-cyan-500/40' : 'focus:ring-zinc-700'
+                } transition-all disabled:opacity-50`}
               />
 
               <button
                 type="submit"
                 disabled={!inputPrompt.trim() || isLoading}
-                className="absolute right-2 p-2 rounded-full bg-white hover:bg-zinc-200 text-black font-semibold transition-all disabled:opacity-30 disabled:bg-zinc-800 disabled:text-zinc-600"
+                className="absolute right-2 p-2 rounded-full bg-white hover:bg-zinc-200 text-black font-semibold transition-all disabled:opacity-30 disabled:bg-zinc-800 disabled:text-zinc-600 cursor-pointer"
               >
                 {isLoading ? (
                   <RefreshCw className="w-4 h-4 animate-spin text-black" />
@@ -780,6 +893,19 @@ export function AIChat() {
           </form>
         </div>
       </div>
+
+      {/* Automation Context Selection Modal */}
+      <AutomationSelectionModal
+        isOpen={isContextModalOpen}
+        onClose={() => setIsContextModalOpen(false)}
+        selectedEntities={selectedEntities}
+        onConfirmSelection={(selected) => {
+          setSelectedEntities(selected);
+          if (selected.length > 0) {
+            toast.success(`Attached ${selected.length} context items to chat`);
+          }
+        }}
+      />
 
       {/* Right Side: Chat History Sidebar */}
       <ChatHistorySidebar
