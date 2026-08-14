@@ -54,17 +54,13 @@ export const RocketLaunchAnimation: React.FC<RocketLaunchAnimationProps> = ({
   const startTimeRef = useRef<number>(0);
   const pathPointsRef = useRef<Point[]>([]);
 
-  // Cubic Bezier curve evaluator
-  const getBezierPoint = (p0: Point, p1: Point, p2: Point, p3: Point, t: number): Point => {
-    const mt = 1 - t;
-    const mt2 = mt * mt;
-    const mt3 = mt2 * mt;
+  // Catmull-Rom spline curve evaluator for 100% smooth continuous multipoint paths
+  const getCatmullRomPoint = (p0: Point, p1: Point, p2: Point, p3: Point, t: number): Point => {
     const t2 = t * t;
     const t3 = t2 * t;
-
     return {
-      x: mt3 * p0.x + 3 * mt2 * t * p1.x + 3 * mt * t2 * p2.x + t3 * p3.x,
-      y: mt3 * p0.y + 3 * mt2 * t * p1.y + 3 * mt * t2 * p2.y + t3 * p3.y,
+      x: 0.5 * ((2 * p1.x) + (-p0.x + p2.x) * t + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 + (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3),
+      y: 0.5 * ((2 * p1.y) + (-p0.y + p2.y) * t + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 + (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3),
     };
   };
 
@@ -141,48 +137,60 @@ export const RocketLaunchAnimation: React.FC<RocketLaunchAnimationProps> = ({
       const W = containerRect.width;
       const H = containerRect.height;
 
-      // Dynamic control points creating a sweeping arc across the chat area
-      const p0 = { ...startPoint };
-      const p1: Point = {
-        x: Math.max(40, p0.x - W * 0.1),
-        y: Math.max(40, H * 0.25),
+      // Dynamic waypoints creating a sweeping continuous roller-coaster arc across the chat area
+      const wp0 = { ...startPoint };
+      
+      // Arc up and right towards the center-top
+      const wp1 = {
+        x: W * 0.45,
+        y: Math.max(20, H * 0.15)
       };
-      const p2: Point = {
-        x: Math.min(W - 40, W * 0.85),
-        y: Math.max(30, H * 0.15),
+      
+      // Swoop down to the center-left to create a loop
+      const wp2 = {
+        x: W * 0.25,
+        y: H * 0.55
       };
-      const p3: Point = {
-        x: Math.min(W - 30, targetPoint.x + 40),
-        y: targetPoint.y - 120,
+      
+      // Pull up and right towards the top-right corner
+      const wp3 = {
+        x: Math.min(W - 40, W * 0.8),
+        y: Math.max(40, H * 0.25)
       };
-      const p4 = { ...targetPoint };
+      
+      // Dive into the target
+      const wp4 = { ...targetPoint };
 
-      pathPointsRef.current = [p0, p1, p2, p3, p4];
+      const waypoints = [wp0, wp1, wp2, wp3, wp4];
+      pathPointsRef.current = waypoints;
       startTimeRef.current = performance.now();
 
-      const FLIGHT_DURATION = 1350; // Total smooth flight time
+      const FLIGHT_DURATION = 1450; // Total smooth flight time
+
+      const getSplinePoint = (globalT: number) => {
+        const clampedT = Math.max(0, Math.min(1, globalT));
+        const numSegments = waypoints.length - 1; // 4 segments
+        const floatIndex = clampedT * numSegments;
+        const index = Math.min(Math.floor(floatIndex), numSegments - 1);
+        const localT = floatIndex - index;
+
+        const p0 = waypoints[Math.max(index - 1, 0)];
+        const p1 = waypoints[index];
+        const p2 = waypoints[Math.min(index + 1, waypoints.length - 1)];
+        const p3 = waypoints[Math.min(index + 2, waypoints.length - 1)];
+
+        return getCatmullRomPoint(p0, p1, p2, p3, localT);
+      };
 
       const animateFlight = (now: number) => {
         const elapsed = now - startTimeRef.current;
         const rawT = Math.min(1, elapsed / FLIGHT_DURATION);
-        // Ease in-out quad for dynamic acceleration
-        const t = rawT < 0.5 ? 2 * rawT * rawT : -1 + (4 - 2 * rawT) * rawT;
+        // Smoothstep easing
+        const t = rawT * rawT * (3 - 2 * rawT);
 
-        // Composite Bezier: Segment 1 (0 to 0.55) and Segment 2 (0.55 to 1.0)
-        let curPos: Point;
-        let nextPos: Point;
-
-        if (t <= 0.55) {
-          const segT = t / 0.55;
-          const nextT = Math.min(1, segT + 0.02);
-          curPos = getBezierPoint(p0, p1, p2, p3, segT);
-          nextPos = getBezierPoint(p0, p1, p2, p3, nextT);
-        } else {
-          const segT = (t - 0.55) / 0.45;
-          const nextT = Math.min(1, segT + 0.02);
-          curPos = getBezierPoint(p2, p3, { x: targetPoint.x + 10, y: targetPoint.y - 40 }, p4, segT);
-          nextPos = getBezierPoint(p2, p3, { x: targetPoint.x + 10, y: targetPoint.y - 40 }, p4, nextT);
-        }
+        // Calculate positions dynamically from a single continuous spline
+        const curPos = getSplinePoint(t);
+        const nextPos = getSplinePoint(t + 0.02);
 
         // Calculate heading angle
         const dx = nextPos.x - curPos.x;
