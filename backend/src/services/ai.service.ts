@@ -1359,6 +1359,16 @@ export const createLangChainTools = (
           return JSON.stringify({ success: false, message: accessCheck.reason });
         }
 
+        if (project.status?.toUpperCase() === 'BUILDING') {
+          sendSSE(res, 'tool_end', {
+            toolName: 'restart_project_container',
+            stepTitle: TOOL_LOADER_MAP.restart_project_container,
+            status: 'completed',
+            resultSummary: 'Project is building',
+          });
+          return JSON.stringify({ success: false, message: `Cannot restart project '${project.projectName}' while it is actively BUILDING.` });
+        }
+
         if (!project.containerId) {
           sendSSE(res, 'tool_end', {
             toolName: 'restart_project_container',
@@ -1450,14 +1460,14 @@ export const createLangChainTools = (
           return JSON.stringify({ success: false, message: accessCheck.reason });
         }
 
-        if (project.status?.toUpperCase() === 'RUNNING') {
+        if (project.status?.toUpperCase() === 'BUILDING') {
           sendSSE(res, 'tool_end', {
             toolName: 'start_project_container',
             stepTitle: TOOL_LOADER_MAP.start_project_container,
             status: 'completed',
-            resultSummary: 'Already running',
+            resultSummary: 'Project is building',
           });
-          return JSON.stringify({ success: false, message: `Project '${project.projectName}' is already running.` });
+          return JSON.stringify({ success: false, message: `Cannot start project '${project.projectName}' while it is actively BUILDING.` });
         }
 
         if (!project.containerId) {
@@ -1492,6 +1502,15 @@ export const createLangChainTools = (
 
         return JSON.stringify(result);
       } catch (err: any) {
+        if (err.statusCode === 304) {
+          sendSSE(res, 'tool_end', {
+            toolName: 'start_project_container',
+            stepTitle: TOOL_LOADER_MAP.start_project_container,
+            status: 'completed',
+            resultSummary: `Already running`,
+          });
+          return JSON.stringify({ success: true, message: `Project is already running.` });
+        }
         sendSSE(res, 'tool_end', {
           toolName: 'start_project_container',
           stepTitle: TOOL_LOADER_MAP.start_project_container,
@@ -1551,14 +1570,14 @@ export const createLangChainTools = (
           return JSON.stringify({ success: false, message: accessCheck.reason });
         }
 
-        if (project.status?.toUpperCase() === 'STOPPED') {
+        if (project.status?.toUpperCase() === 'BUILDING') {
           sendSSE(res, 'tool_end', {
             toolName: 'stop_project_container',
             stepTitle: TOOL_LOADER_MAP.stop_project_container,
             status: 'completed',
-            resultSummary: 'Already stopped',
+            resultSummary: 'Project is building',
           });
-          return JSON.stringify({ success: false, message: `Project '${project.projectName}' is already stopped.` });
+          return JSON.stringify({ success: false, message: `Cannot stop project '${project.projectName}' while it is actively BUILDING.` });
         }
 
         if (!project.containerId) {
@@ -1593,6 +1612,15 @@ export const createLangChainTools = (
 
         return JSON.stringify(result);
       } catch (err: any) {
+        if (err.statusCode === 304) {
+          sendSSE(res, 'tool_end', {
+            toolName: 'stop_project_container',
+            stepTitle: TOOL_LOADER_MAP.stop_project_container,
+            status: 'completed',
+            resultSummary: `Already stopped`,
+          });
+          return JSON.stringify({ success: true, message: `Project is already stopped.` });
+        }
         sendSSE(res, 'tool_end', {
           toolName: 'stop_project_container',
           stepTitle: TOOL_LOADER_MAP.stop_project_container,
@@ -1948,39 +1976,41 @@ export const processAIQuery = async (
 
     if (isStartAction || isStopAction || isGitUpdateAction) {
       const { project } = parseContextEntities(query);
-      let targetProject = project || selectedProjects[0] || '';
+      const targets = project ? [project] : (selectedProjects.length > 0 ? selectedProjects : []);
 
-      if (targetProject) {
-        if (isStartAction) {
-          const tool = tools.find(t => t.name === 'start_project_container')!;
-          const resultStr = await tool.invoke({ projectNameOrId: targetProject });
-          const parsed = JSON.parse(resultStr);
-          sendSSE(res, 'thinking', { stepTitle: 'Starting project container...' });
-          await completeAIResponse(parsed.success ? `✅ **Success:** ${parsed.message}` : `❌ **Error:** ${parsed.message || parsed.error}`);
-          return;
-        }
-        if (isStopAction) {
-          const tool = tools.find(t => t.name === 'stop_project_container')!;
-          const resultStr = await tool.invoke({ projectNameOrId: targetProject });
-          const parsed = JSON.parse(resultStr);
-          sendSSE(res, 'thinking', { stepTitle: 'Stopping project container...' });
-          await completeAIResponse(parsed.success ? `✅ **Success:** ${parsed.message}` : `❌ **Error:** ${parsed.message || parsed.error}`);
-          return;
-        }
-        if (isGitUpdateAction) {
-          const urlMatch = query.match(/https?:\/\/[^\s]+/);
-          const newGitUrl = urlMatch ? urlMatch[0] : '';
-          if (!newGitUrl) {
-            await completeAIResponse(`Please provide the new Git repository URL you want to set for project "**${targetProject}**".`);
-            return;
+      if (targets.length > 0) {
+        let messages: string[] = [];
+
+        for (const targetProject of targets) {
+          if (isStartAction) {
+            const tool = tools.find(t => t.name === 'start_project_container')!;
+            const resultStr = await tool.invoke({ projectNameOrId: targetProject });
+            const parsed = JSON.parse(resultStr);
+            messages.push(parsed.success ? `✅ **${targetProject}:** ${parsed.message}` : `❌ **${targetProject}:** ${parsed.message || parsed.error}`);
           }
-          const tool = tools.find(t => t.name === 'update_project_git_url')!;
-          const resultStr = await tool.invoke({ projectNameOrId: targetProject, newGitUrl });
-          const parsed = JSON.parse(resultStr);
-          sendSSE(res, 'thinking', { stepTitle: 'Updating project Git URL...' });
-          await completeAIResponse(parsed.success ? `✅ **Success:** ${parsed.message}` : `❌ **Error:** ${parsed.message || parsed.error}`);
-          return;
+          else if (isStopAction) {
+            const tool = tools.find(t => t.name === 'stop_project_container')!;
+            const resultStr = await tool.invoke({ projectNameOrId: targetProject });
+            const parsed = JSON.parse(resultStr);
+            messages.push(parsed.success ? `✅ **${targetProject}:** ${parsed.message}` : `❌ **${targetProject}:** ${parsed.message || parsed.error}`);
+          }
+          else if (isGitUpdateAction) {
+            const urlMatch = query.match(/https?:\/\/[^\s]+/);
+            const newGitUrl = urlMatch ? urlMatch[0] : '';
+            if (!newGitUrl) {
+              messages.push(`❌ **${targetProject}:** Please provide the new Git repository URL.`);
+              continue;
+            }
+            const tool = tools.find(t => t.name === 'update_project_git_url')!;
+            const resultStr = await tool.invoke({ projectNameOrId: targetProject, newGitUrl });
+            const parsed = JSON.parse(resultStr);
+            messages.push(parsed.success ? `✅ **${targetProject}:** ${parsed.message}` : `❌ **${targetProject}:** ${parsed.message || parsed.error}`);
+          }
         }
+
+        sendSSE(res, 'thinking', { stepTitle: 'Applying automation actions...' });
+        await completeAIResponse(`### Automation Action Results\n\n${messages.join('\n\n')}`);
+        return;
       }
     }
 

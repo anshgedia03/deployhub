@@ -980,6 +980,20 @@ const createLangChainTools = (userId, organizationId, res, executedTools, scoped
                 status: 'running',
             });
             try {
+                // Permission Guard: Only Organization Owners can modify access levels
+                const callingUser = await shared_1.User.findById(userId).select('accountType role');
+                if (!callingUser || callingUser.accountType === 'employee') {
+                    sendSSE(res, 'tool_end', {
+                        toolName: 'update_project_access_level',
+                        stepTitle: TOOL_LOADER_MAP.update_project_access_level,
+                        status: 'error',
+                        resultSummary: 'Permission denied: Employees cannot modify access levels',
+                    });
+                    return JSON.stringify({
+                        success: false,
+                        message: 'Permission Denied: Employees are not authorized to change or assign project access levels. Only organization owners and administrators have this permission.',
+                    });
+                }
                 const cleanUser = employeeIdentifier.trim();
                 const cleanProj = projectNameOrId.trim();
                 const isAllUsers = ['all', 'all users', 'all employees', 'all members', 'everyone', 'organization', 'our organization', 'entire organization', 'everybody'].includes(cleanUser.toLowerCase());
@@ -1115,6 +1129,20 @@ const createLangChainTools = (userId, organizationId, res, executedTools, scoped
                 status: 'running',
             });
             try {
+                // Permission Guard: Only Organization Owners can modify access levels
+                const callingUser = await shared_1.User.findById(userId).select('accountType role');
+                if (!callingUser || callingUser.accountType === 'employee') {
+                    sendSSE(res, 'tool_end', {
+                        toolName: 'update_employee_org_access',
+                        stepTitle: TOOL_LOADER_MAP.update_employee_org_access,
+                        status: 'error',
+                        resultSummary: 'Permission denied: Employees cannot modify access levels',
+                    });
+                    return JSON.stringify({
+                        success: false,
+                        message: 'Permission Denied: Employees are not authorized to change organization access levels. Only organization owners have this permission.',
+                    });
+                }
                 const cleanUser = employeeIdentifier.trim();
                 const regex = new RegExp(`^${cleanUser}$`, 'i');
                 const targetUser = await shared_1.User.findOne({
@@ -1203,6 +1231,15 @@ const createLangChainTools = (userId, organizationId, res, executedTools, scoped
                     });
                     return JSON.stringify({ success: false, message: accessCheck.reason });
                 }
+                if (project.status?.toUpperCase() === 'BUILDING') {
+                    sendSSE(res, 'tool_end', {
+                        toolName: 'restart_project_container',
+                        stepTitle: TOOL_LOADER_MAP.restart_project_container,
+                        status: 'completed',
+                        resultSummary: 'Project is building',
+                    });
+                    return JSON.stringify({ success: false, message: `Cannot restart project '${project.projectName}' while it is actively BUILDING.` });
+                }
                 if (!project.containerId) {
                     sendSSE(res, 'tool_end', {
                         toolName: 'restart_project_container',
@@ -1285,14 +1322,14 @@ const createLangChainTools = (userId, organizationId, res, executedTools, scoped
                     });
                     return JSON.stringify({ success: false, message: accessCheck.reason });
                 }
-                if (project.status?.toUpperCase() === 'RUNNING') {
+                if (project.status?.toUpperCase() === 'BUILDING') {
                     sendSSE(res, 'tool_end', {
                         toolName: 'start_project_container',
                         stepTitle: TOOL_LOADER_MAP.start_project_container,
                         status: 'completed',
-                        resultSummary: 'Already running',
+                        resultSummary: 'Project is building',
                     });
-                    return JSON.stringify({ success: false, message: `Project '${project.projectName}' is already running.` });
+                    return JSON.stringify({ success: false, message: `Cannot start project '${project.projectName}' while it is actively BUILDING.` });
                 }
                 if (!project.containerId) {
                     sendSSE(res, 'tool_end', {
@@ -1322,6 +1359,15 @@ const createLangChainTools = (userId, organizationId, res, executedTools, scoped
                 return JSON.stringify(result);
             }
             catch (err) {
+                if (err.statusCode === 304) {
+                    sendSSE(res, 'tool_end', {
+                        toolName: 'start_project_container',
+                        stepTitle: TOOL_LOADER_MAP.start_project_container,
+                        status: 'completed',
+                        resultSummary: `Already running`,
+                    });
+                    return JSON.stringify({ success: true, message: `Project is already running.` });
+                }
                 sendSSE(res, 'tool_end', {
                     toolName: 'start_project_container',
                     stepTitle: TOOL_LOADER_MAP.start_project_container,
@@ -1376,14 +1422,14 @@ const createLangChainTools = (userId, organizationId, res, executedTools, scoped
                     });
                     return JSON.stringify({ success: false, message: accessCheck.reason });
                 }
-                if (project.status?.toUpperCase() === 'STOPPED') {
+                if (project.status?.toUpperCase() === 'BUILDING') {
                     sendSSE(res, 'tool_end', {
                         toolName: 'stop_project_container',
                         stepTitle: TOOL_LOADER_MAP.stop_project_container,
                         status: 'completed',
-                        resultSummary: 'Already stopped',
+                        resultSummary: 'Project is building',
                     });
-                    return JSON.stringify({ success: false, message: `Project '${project.projectName}' is already stopped.` });
+                    return JSON.stringify({ success: false, message: `Cannot stop project '${project.projectName}' while it is actively BUILDING.` });
                 }
                 if (!project.containerId) {
                     sendSSE(res, 'tool_end', {
@@ -1413,6 +1459,15 @@ const createLangChainTools = (userId, organizationId, res, executedTools, scoped
                 return JSON.stringify(result);
             }
             catch (err) {
+                if (err.statusCode === 304) {
+                    sendSSE(res, 'tool_end', {
+                        toolName: 'stop_project_container',
+                        stepTitle: TOOL_LOADER_MAP.stop_project_container,
+                        status: 'completed',
+                        resultSummary: `Already stopped`,
+                    });
+                    return JSON.stringify({ success: true, message: `Project is already stopped.` });
+                }
                 sendSSE(res, 'tool_end', {
                     toolName: 'stop_project_container',
                     stepTitle: TOOL_LOADER_MAP.stop_project_container,
@@ -1668,6 +1723,13 @@ const processAIQuery = async (query, userId, organizationId, res, sessionId, sel
             lowerQuery.includes('remove access') ||
             (lowerQuery.includes('full access') && (lowerQuery.includes('user') || lowerQuery.includes('project') || lowerQuery.includes('this')));
         if (isAccessMutation) {
+            // Permission Guard: Employees cannot modify access levels
+            const callingUser = await shared_1.User.findById(userId).select('accountType role');
+            if (!callingUser || callingUser.accountType === 'employee') {
+                sendSSE(res, 'thinking', { stepTitle: 'Checking permissions...' });
+                await completeAIResponse('⛔ **Permission Denied**: Employees are not authorized to modify or grant access levels. Only organization owners and administrators can change access permissions.');
+                return;
+            }
             const { project, employee } = parseContextEntities(query);
             let targetProject = project || selectedProjects[0] || '';
             let targetEmployee = employee || '';
@@ -1712,38 +1774,38 @@ const processAIQuery = async (query, userId, organizationId, res, sessionId, sel
         const isGitUpdateAction = lowerQuery.includes('update git') || lowerQuery.includes('change git') || lowerQuery.includes('set git') || lowerQuery.includes('update repo');
         if (isStartAction || isStopAction || isGitUpdateAction) {
             const { project } = parseContextEntities(query);
-            let targetProject = project || selectedProjects[0] || '';
-            if (targetProject) {
-                if (isStartAction) {
-                    const tool = tools.find(t => t.name === 'start_project_container');
-                    const resultStr = await tool.invoke({ projectNameOrId: targetProject });
-                    const parsed = JSON.parse(resultStr);
-                    sendSSE(res, 'thinking', { stepTitle: 'Starting project container...' });
-                    await completeAIResponse(parsed.success ? `✅ **Success:** ${parsed.message}` : `❌ **Error:** ${parsed.message || parsed.error}`);
-                    return;
-                }
-                if (isStopAction) {
-                    const tool = tools.find(t => t.name === 'stop_project_container');
-                    const resultStr = await tool.invoke({ projectNameOrId: targetProject });
-                    const parsed = JSON.parse(resultStr);
-                    sendSSE(res, 'thinking', { stepTitle: 'Stopping project container...' });
-                    await completeAIResponse(parsed.success ? `✅ **Success:** ${parsed.message}` : `❌ **Error:** ${parsed.message || parsed.error}`);
-                    return;
-                }
-                if (isGitUpdateAction) {
-                    const urlMatch = query.match(/https?:\/\/[^\s]+/);
-                    const newGitUrl = urlMatch ? urlMatch[0] : '';
-                    if (!newGitUrl) {
-                        await completeAIResponse(`Please provide the new Git repository URL you want to set for project "**${targetProject}**".`);
-                        return;
+            const targets = project ? [project] : (selectedProjects.length > 0 ? selectedProjects : []);
+            if (targets.length > 0) {
+                let messages = [];
+                for (const targetProject of targets) {
+                    if (isStartAction) {
+                        const tool = tools.find(t => t.name === 'start_project_container');
+                        const resultStr = await tool.invoke({ projectNameOrId: targetProject });
+                        const parsed = JSON.parse(resultStr);
+                        messages.push(parsed.success ? `✅ **${targetProject}:** ${parsed.message}` : `❌ **${targetProject}:** ${parsed.message || parsed.error}`);
                     }
-                    const tool = tools.find(t => t.name === 'update_project_git_url');
-                    const resultStr = await tool.invoke({ projectNameOrId: targetProject, newGitUrl });
-                    const parsed = JSON.parse(resultStr);
-                    sendSSE(res, 'thinking', { stepTitle: 'Updating project Git URL...' });
-                    await completeAIResponse(parsed.success ? `✅ **Success:** ${parsed.message}` : `❌ **Error:** ${parsed.message || parsed.error}`);
-                    return;
+                    else if (isStopAction) {
+                        const tool = tools.find(t => t.name === 'stop_project_container');
+                        const resultStr = await tool.invoke({ projectNameOrId: targetProject });
+                        const parsed = JSON.parse(resultStr);
+                        messages.push(parsed.success ? `✅ **${targetProject}:** ${parsed.message}` : `❌ **${targetProject}:** ${parsed.message || parsed.error}`);
+                    }
+                    else if (isGitUpdateAction) {
+                        const urlMatch = query.match(/https?:\/\/[^\s]+/);
+                        const newGitUrl = urlMatch ? urlMatch[0] : '';
+                        if (!newGitUrl) {
+                            messages.push(`❌ **${targetProject}:** Please provide the new Git repository URL.`);
+                            continue;
+                        }
+                        const tool = tools.find(t => t.name === 'update_project_git_url');
+                        const resultStr = await tool.invoke({ projectNameOrId: targetProject, newGitUrl });
+                        const parsed = JSON.parse(resultStr);
+                        messages.push(parsed.success ? `✅ **${targetProject}:** ${parsed.message}` : `❌ **${targetProject}:** ${parsed.message || parsed.error}`);
+                    }
                 }
+                sendSSE(res, 'thinking', { stepTitle: 'Applying automation actions...' });
+                await completeAIResponse(`### Automation Action Results\n\n${messages.join('\n\n')}`);
+                return;
             }
         }
         // 2. PROJECT ACCESS & PERMISSION QUERY (e.g. "who can access this project", "who can acess", "who has access")
@@ -2066,6 +2128,7 @@ const processAIQuery = async (query, userId, organizationId, res, sessionId, sel
                     '   - For semantic search across documentation & build logs -> invoke `search_vector_knowledge`.\n' +
                     '   - When a specific project is selected in context or named, invoke `get_project_details` to inspect it.\n' +
                     '5. AUTOMATION ACTIONS & CONTEXT PARSING (HIGHEST PRIORITY):\n' +
+                    '   - EMPLOYEE PERMISSION RESTRICTION: Employees (`accountType === "employee"`) are strictly FORBIDDEN from modifying access levels, granting access, or revoking access for any user or project. If an employee requests to change access levels, you must refuse with: "Permission Denied: Employees are not authorized to modify access levels. Only organization owners and administrators have this permission."\n' +
                     '   - When the user asks to give/grant/revoke access on a project to "all users", "all employees", "everyone", "all members", or "our organization" (e.g. "give access of this project to all users of our organization", "grant access on project two to everyone"):\n' +
                     '     YOU MUST INVOKE `update_project_access_level` with { employeeIdentifier: "all", projectNameOrId: project, accessLevel: "full" | "limited" | "none" }.\n' +
                     '   - When the user query includes `[Selected Context: ...]` (e.g. `[Selected Context: PROJECT: two [RUNNING], EMPLOYEE: anshZIG [LIMITED]]`) or refers to "this user", "this project", "them", "it":\n' +
