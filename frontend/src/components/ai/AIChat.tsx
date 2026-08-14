@@ -181,6 +181,16 @@ export function AIChat() {
                   return { ...msg, isStreaming: false, isThinking: false };
                 }
 
+                if (eventName === 'error') {
+                  const errorMsg = data.message || 'An error occurred during AI processing.';
+                  return {
+                    ...msg,
+                    text: msg.text ? msg.text + `\n\n**[Error: ${errorMsg}]**` : `**[Error: ${errorMsg}]**`,
+                    isStreaming: false,
+                    isThinking: false,
+                  };
+                }
+
                 return msg;
               })
             );

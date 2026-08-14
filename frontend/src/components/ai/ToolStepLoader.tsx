@@ -42,7 +42,7 @@ export const ToolStepLoader: React.FC<ToolStepLoaderProps> = ({ steps, isThinkin
       )}
 
       {(!isMultiToolComplete || isExpanded) && steps.map((step, idx) => {
-        const showAsRunning = isStreaming || step.status === 'running';
+        const showAsRunning = step.status === 'running';
         const showAsError = step.status === 'error';
         const showAsCompleted = !showAsRunning && !showAsError;
 
