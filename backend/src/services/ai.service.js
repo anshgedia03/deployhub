@@ -609,7 +609,7 @@ const processAIQuery = async (query, userId, organizationId, res) => {
     try {
         const model = new groq_1.ChatGroq({
             apiKey,
-            model: 'openai/gpt-oss-20b',
+            model: 'llama-3.1-8b-instant',
             temperature: 0.2,
         }).bindTools(tools);
         const messages = [

@@ -683,7 +683,7 @@ export const processAIQuery = async (
   try {
     const model = new ChatGroq({
       apiKey,
-      model: 'openai/gpt-oss-20b',
+      model: 'llama-3.1-8b-instant',
       temperature: 0.2,
     }).bindTools(tools);
 
