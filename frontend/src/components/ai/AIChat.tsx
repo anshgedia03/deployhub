@@ -33,8 +33,8 @@ export const AVAILABLE_MODELS: AIModelOption[] = [
     description: 'Ultra-fast sub-second latency for real-time queries',
   },
   {
-    id: 'gpt-oss-20b',
-    name: 'gpt-oss-20b',
+    id: 'openai/gpt-oss-20b',
+    name: 'openai/gpt-oss-20b',
     label: 'GPT OSS 20B Reasoning',
     provider: 'OpenAI / OSS',
     badge: 'Multi-Step',
