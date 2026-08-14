@@ -4,6 +4,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Send, Bot, User, RefreshCw } from 'lucide-react';
 import { getApiUrl } from '@/config/api';
 import { toast } from 'sonner';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { ToolStepLoader, ToolStep } from './ToolStepLoader';
 
 interface Message {
@@ -15,27 +17,12 @@ interface Message {
   isStreaming?: boolean;
 }
 
-/**
- * Format markdown symbols out into clean, readable text
- */
-function cleanText(text: string): string {
-  if (!text) return '';
-  return text
-    .replace(/^###\s+/gm, '')
-    .replace(/^##\s+/gm, '')
-    .replace(/^#\s+/gm, '')
-    .replace(/\*\*(.*?)\*\*/g, '$1')
-    .replace(/\*(.*?)\*/g, '$1')
-    .replace(/`([^`]+)`/g, '$1')
-    .trim();
-}
-
 export function AIChat() {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 'welcome',
       sender: 'ai',
-      text: "Hello! I am DeployHub AI Assistant.\n\nAsk me anything about your organization employees, deployments, live container health, or deployment history.",
+      text: "Hello! I am DeployHub AI Assistant.\n\nAsk me anything about your organization employees, project deployments, live container health, or deployment history.",
     },
   ]);
   const [inputPrompt, setInputPrompt] = useState('');
@@ -149,7 +136,7 @@ export function AIChat() {
                       status: 'running',
                     });
                   }
-                  return { ...msg, toolSteps: currentSteps };
+                  return { ...msg, toolSteps: currentSteps, isThinking: false };
                 }
 
                 if (eventName === 'tool_end') {
@@ -238,7 +225,7 @@ export function AIChat() {
             )}
 
             {/* Message Bubble */}
-            <div className="max-w-2xl space-y-1">
+            <div className="max-w-2xl sm:max-w-3xl space-y-1 w-full sm:w-auto">
               {/* Minimalist Loader */}
               <ToolStepLoader
                 steps={msg.toolSteps || []}
@@ -246,15 +233,107 @@ export function AIChat() {
                 isStreaming={msg.isStreaming}
               />
 
-              {(msg.sender === 'user' || cleanText(msg.text).length > 0) && (
+              {(msg.sender === 'user' || msg.text.trim().length > 0) && (
                 <div
-                  className={`p-3.5 rounded-2xl text-xs sm:text-sm leading-relaxed whitespace-pre-wrap ${
+                  className={`p-3.5 sm:p-4 rounded-2xl text-xs sm:text-sm leading-relaxed ${
                     msg.sender === 'user'
-                      ? 'bg-blue-600 text-white rounded-tr-none font-medium shadow-sm'
-                      : 'bg-zinc-900 border border-zinc-800 text-zinc-200 rounded-tl-none'
+                      ? 'bg-blue-600 text-white rounded-tr-none font-medium shadow-sm ml-auto max-w-fit whitespace-pre-wrap'
+                      : 'bg-zinc-900 border border-zinc-800 text-zinc-200 rounded-tl-none overflow-hidden'
                   }`}
                 >
-                  {cleanText(msg.text)}
+                  {msg.sender === 'user' ? (
+                    msg.text
+                  ) : (
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        table: ({ node, ...props }) => (
+                          <div className="my-3 overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-950/90 shadow-md">
+                            <table className="w-full text-left text-xs border-collapse min-w-[480px]" {...props} />
+                          </div>
+                        ),
+                        thead: ({ node, ...props }) => (
+                          <thead className="bg-zinc-900/90 border-b border-zinc-800 text-zinc-200 font-semibold" {...props} />
+                        ),
+                        tbody: ({ node, ...props }) => (
+                          <tbody className="divide-y divide-zinc-800/60" {...props} />
+                        ),
+                        tr: ({ node, ...props }) => (
+                          <tr className="hover:bg-zinc-900/40 transition-colors" {...props} />
+                        ),
+                        th: ({ node, ...props }) => (
+                          <th className="px-3.5 py-2.5 text-zinc-300 font-semibold text-xs whitespace-nowrap" {...props} />
+                        ),
+                        td: ({ node, children, ...props }) => {
+                          const text = String(children).trim();
+                          if (text === 'RUNNING') {
+                            return (
+                              <td className="px-3.5 py-2.5 whitespace-nowrap" {...props}>
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-950/80 text-emerald-400 border border-emerald-800/60">
+                                  ● RUNNING
+                                </span>
+                              </td>
+                            );
+                          }
+                          if (text === 'FAILED') {
+                            return (
+                              <td className="px-3.5 py-2.5 whitespace-nowrap" {...props}>
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-950/80 text-red-400 border border-red-800/60">
+                                  ● FAILED
+                                </span>
+                              </td>
+                            );
+                          }
+                          if (text === 'STOPPED') {
+                            return (
+                              <td className="px-3.5 py-2.5 whitespace-nowrap" {...props}>
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-zinc-800 text-zinc-400 border border-zinc-700">
+                                  ● STOPPED
+                                </span>
+                              </td>
+                            );
+                          }
+                          if (text === 'BUILDING') {
+                            return (
+                              <td className="px-3.5 py-2.5 whitespace-nowrap" {...props}>
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-950/80 text-amber-400 border border-amber-800/60">
+                                  ● BUILDING
+                                </span>
+                              </td>
+                            );
+                          }
+                          return (
+                            <td className="px-3.5 py-2.5 text-zinc-300 text-xs" {...props}>
+                              {children}
+                            </td>
+                          );
+                        },
+                        a: ({ node, href, children, ...props }) => (
+                          <a
+                            href={href}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-400 hover:text-blue-300 underline font-medium"
+                            {...props}
+                          >
+                            {children}
+                          </a>
+                        ),
+                        code: ({ node, className, children, ...props }) => (
+                          <code className="bg-zinc-800/90 text-emerald-400 px-1.5 py-0.5 rounded font-mono text-[11px] border border-zinc-700/50" {...props}>
+                            {children}
+                          </code>
+                        ),
+                        p: ({ node, ...props }) => <p className="my-1.5 leading-relaxed" {...props} />,
+                        ul: ({ node, ...props }) => <ul className="my-2 ml-4 list-disc space-y-1 text-zinc-200" {...props} />,
+                        ol: ({ node, ...props }) => <ol className="my-2 ml-4 list-decimal space-y-1 text-zinc-200" {...props} />,
+                        li: ({ node, ...props }) => <li className="leading-relaxed" {...props} />,
+                        strong: ({ node, ...props }) => <strong className="font-semibold text-zinc-100" {...props} />,
+                      }}
+                    >
+                      {msg.text}
+                    </ReactMarkdown>
+                  )}
                 </div>
               )}
             </div>

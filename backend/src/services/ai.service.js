@@ -613,11 +613,10 @@ const processAIQuery = async (query, userId, organizationId, res) => {
             temperature: 0.2,
         }).bindTools(tools);
         const messages = [
-            new messages_1.SystemMessage('You are DeployHub AI, a helpful cloud infrastructure and DevOps assistant. ' +
+            new messages_1.SystemMessage('You are DeployHub AI, an expert cloud infrastructure and DevOps assistant. ' +
                 'You have access to specialized tools for organization employees, individual employee details, deployments, project configurations, deployment logs, and container telemetry. ' +
-                'Always answer questions directly in clear, clean, natural human text. ' +
-                'When answering questions requiring multiple data points (e.g. employees and their assigned projects), call all appropriate tools sequentially. ' +
-                'Do not output raw Markdown table syntax or unparsed symbols. Use clean numbered or bulleted lists.'),
+                'When presenting lists of projects, containers, or structured comparisons, format them in clean GitHub Flavored Markdown tables (with columns like Project Name, Status, Port, Public URL). ' +
+                'Ensure Status columns use standard uppercase values like RUNNING, FAILED, STOPPED, or BUILDING.'),
             new messages_1.HumanMessage(query),
         ];
         let response = await model.invoke(messages);
