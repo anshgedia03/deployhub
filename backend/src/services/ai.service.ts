@@ -1060,37 +1060,20 @@ export const createLangChainTools = (
       try {
         const cleanUser = employeeIdentifier.trim();
         const cleanProj = projectNameOrId.trim();
-        const regex = new RegExp(`^${cleanUser}$`, 'i');
+        const isAllUsers =
+          ['all', 'all users', 'all employees', 'all members', 'everyone', 'organization', 'our organization', 'entire organization', 'everybody'].includes(cleanUser.toLowerCase());
 
-        const [targetUser, project] = await Promise.all([
-          User.findOne({
-            $and: [
-              { $or: [{ organizationId }, { _id: organizationId }] },
-              { $or: [{ username: regex }, { email: regex }] }
-            ]
-          }),
-          Deployment.findOne({
-            $and: [
-              { $or: [{ organizationId }, { userId: organizationId }] },
-              {
-                $or: [
-                  { projectName: { $regex: `^${cleanProj}$`, $options: 'i' } },
-                  { deploymentId: cleanProj }
-                ]
-              }
-            ]
-          })
-        ]);
-
-        if (!targetUser) {
-          sendSSE(res, 'tool_end', {
-            toolName: 'update_project_access_level',
-            stepTitle: TOOL_LOADER_MAP.update_project_access_level,
-            status: 'completed',
-            resultSummary: `Employee not found: ${cleanUser}`,
-          });
-          return JSON.stringify({ success: false, message: `Employee '${cleanUser}' was not found in this organization.` });
-        }
+        const project = await Deployment.findOne({
+          $and: [
+            { $or: [{ organizationId }, { userId: organizationId }] },
+            {
+              $or: [
+                { projectName: { $regex: `^${cleanProj}$`, $options: 'i' } },
+                { deploymentId: cleanProj }
+              ]
+            }
+          ]
+        });
 
         if (!project) {
           sendSSE(res, 'tool_end', {
@@ -1102,9 +1085,78 @@ export const createLangChainTools = (
           return JSON.stringify({ success: false, message: `Project '${cleanProj}' was not found in this organization.` });
         }
 
-        // Initialize or update project.accessControl
         if (!project.accessControl) {
           project.accessControl = [];
+        }
+
+        if (isAllUsers) {
+          // Fetch all employees in this organization
+          const allEmployees = await User.find({
+            organizationId,
+            accountType: 'employee',
+          }).select('username email');
+
+          if (allEmployees.length === 0) {
+            sendSSE(res, 'tool_end', {
+              toolName: 'update_project_access_level',
+              stepTitle: TOOL_LOADER_MAP.update_project_access_level,
+              status: 'completed',
+              resultSummary: `No employee accounts found`,
+            });
+            return JSON.stringify({
+              success: true,
+              message: `No employee accounts exist in this organization. Organization admins automatically have full access to project "${project.projectName}".`,
+            });
+          }
+
+          // Assign access to all employees
+          project.accessControl = [];
+          if (accessLevel !== 'none') {
+            for (const emp of allEmployees) {
+              project.accessControl.push({
+                employeeId: emp._id,
+                accessLevel,
+              } as any);
+            }
+          }
+
+          await project.save();
+
+          const result = {
+            success: true,
+            message: `Successfully granted "${accessLevel.toUpperCase()}" access on project "${project.projectName}" to all ${allEmployees.length} employee(s) in the organization (${allEmployees.map((e: any) => e.username).join(', ')}).`,
+            project: project.projectName,
+            newAccessLevel: accessLevel,
+            totalEmployeesUpdated: allEmployees.length,
+          };
+
+          sendSSE(res, 'tool_end', {
+            toolName: 'update_project_access_level',
+            stepTitle: TOOL_LOADER_MAP.update_project_access_level,
+            status: 'completed',
+            resultSummary: `Granted ${accessLevel} access to all ${allEmployees.length} employees on ${project.projectName}`,
+          });
+
+          return JSON.stringify(result);
+        }
+
+        // Single employee lookup
+        const regex = new RegExp(`^${cleanUser}$`, 'i');
+        const targetUser = await User.findOne({
+          $and: [
+            { $or: [{ organizationId }, { _id: organizationId }] },
+            { $or: [{ username: regex }, { email: regex }] }
+          ]
+        });
+
+        if (!targetUser) {
+          sendSSE(res, 'tool_end', {
+            toolName: 'update_project_access_level',
+            stepTitle: TOOL_LOADER_MAP.update_project_access_level,
+            status: 'completed',
+            resultSummary: `Employee not found: ${cleanUser}`,
+          });
+          return JSON.stringify({ success: false, message: `No employee matching '${cleanUser}' was found in this organization.` });
         }
 
         project.accessControl = project.accessControl.filter(
@@ -1488,8 +1540,22 @@ export const processAIQuery = async (
     if (isAccessMutation) {
       const { project, employee } = parseContextEntities(query);
 
-      let targetProject = project;
-      let targetEmployee = employee;
+      let targetProject = project || selectedProjects[0] || '';
+      let targetEmployee = employee || '';
+
+      if (
+        !targetEmployee ||
+        lowerQuery.includes('all user') ||
+        lowerQuery.includes('all employee') ||
+        lowerQuery.includes('all member') ||
+        lowerQuery.includes('everyone') ||
+        lowerQuery.includes('everybody') ||
+        lowerQuery.includes('our organization') ||
+        lowerQuery.includes('whole organization') ||
+        lowerQuery.includes('entire organization')
+      ) {
+        targetEmployee = 'all';
+      }
 
       // Extract access level
       let accessLevel: 'full' | 'limited' | 'none' = 'full';
@@ -1511,7 +1577,7 @@ export const processAIQuery = async (
         const parsed = JSON.parse(resultStr);
 
         sendSSE(res, 'thinking', { stepTitle: 'Applying project access permissions...' });
-        await completeAIResponse(`✅ **Project Access Updated**\n\n${parsed.message || `Successfully granted \`${accessLevel.toUpperCase()}\` access to **${targetEmployee}** for project **${targetProject}**.`}`);
+        await completeAIResponse(`✅ **Project Access Updated**\n\n${parsed.message || `Successfully granted \`${accessLevel.toUpperCase()}\` access on project **${targetProject}**.`}`);
         return;
       }
     }
@@ -1889,6 +1955,8 @@ export const processAIQuery = async (
           '   - For semantic search across documentation & build logs -> invoke `search_vector_knowledge`.\n' +
           '   - When a specific project is selected in context or named, invoke `get_project_details` to inspect it.\n' +
           '5. AUTOMATION ACTIONS & CONTEXT PARSING (HIGHEST PRIORITY):\n' +
+          '   - When the user asks to give/grant/revoke access on a project to "all users", "all employees", "everyone", "all members", or "our organization" (e.g. "give access of this project to all users of our organization", "grant access on project two to everyone"):\n' +
+          '     YOU MUST INVOKE `update_project_access_level` with { employeeIdentifier: "all", projectNameOrId: project, accessLevel: "full" | "limited" | "none" }.\n' +
           '   - When the user query includes `[Selected Context: ...]` (e.g. `[Selected Context: PROJECT: two [RUNNING], EMPLOYEE: anshZIG [LIMITED]]`) or refers to "this user", "this project", "them", "it":\n' +
           '     1. Extract the employee username (e.g. "anshZIG") and project name (e.g. "two") from the context or query.\n' +
           '     2. If the user asks to change, grant, give, or revoke access (e.g. "give full access to this user for this project", "give full access to anshZIG on two", "change access level to full"), YOU MUST IMMEDIATELY INVOKE `update_project_access_level` with { employeeIdentifier: "anshZIG", projectNameOrId: "two", accessLevel: "full" }.\n' +
