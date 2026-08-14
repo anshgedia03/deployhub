@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, RefreshCw, MessageSquarePlus, Rocket } from 'lucide-react';
+import { Send, Bot, User, RefreshCw, MessageSquarePlus, Rocket, ChevronDown, Sparkles, Cpu, Layers, Check } from 'lucide-react';
 import { getApiUrl } from '@/config/api';
 import { toast } from 'sonner';
 import ReactMarkdown from 'react-markdown';
@@ -10,6 +10,55 @@ import { ToolStepLoader, ToolStep } from './ToolStepLoader';
 import { ChatHistorySidebar, ChatSession } from './ChatHistorySidebar';
 import { NewChatModal } from './NewChatModal';
 import { RocketLaunchAnimation } from './RocketLaunchAnimation';
+
+export interface AIModelOption {
+  id: string;
+  name: string;
+  label: string;
+  provider: string;
+  badge: string;
+  badgeColor: string;
+  description: string;
+}
+
+export const AVAILABLE_MODELS: AIModelOption[] = [
+  {
+    id: 'llama-3.1-8b-instant',
+    name: 'llama-3.1-8b-instant',
+    label: 'Llama 3.1 8B Instant',
+    provider: 'Groq',
+    badge: 'Fast & Instant',
+    badgeColor: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+    description: 'Ultra-fast low latency 8B model for quick DevOps tasks',
+  },
+  {
+    id: 'gpt-oss-20b',
+    name: 'gpt-oss-20b',
+    label: 'GPT-OSS 20B',
+    provider: 'OpenAI / OSS',
+    badge: 'Multi-Step',
+    badgeColor: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
+    description: 'High-accuracy open model for multi-step reasoning & tool synthesis',
+  },
+  {
+    id: 'groq/compound',
+    name: 'groq/compound',
+    label: 'Groq Compound',
+    provider: 'Groq AI',
+    badge: 'Compound',
+    badgeColor: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20',
+    description: 'Multi-agent composite routing with tool specialization',
+  },
+  {
+    id: 'llama-3.3-70b-versatile',
+    name: 'llama-3.3-70b-versatile',
+    label: 'Llama 3.3 70B Versatile',
+    provider: 'Meta / Groq',
+    badge: 'Flagship 70B',
+    badgeColor: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+    description: 'Deep architectural and deployment configuration analysis',
+  },
+];
 
 interface Message {
   id: string;
@@ -25,6 +74,16 @@ export function AIChat() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [activeSessionTitle, setActiveSessionTitle] = useState<string>('DeployHub AI Assistant');
   const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
+
+  // Model Selection State
+  const [selectedModel, setSelectedModel] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('deployhub_selected_model') || 'llama-3.1-8b-instant';
+    }
+    return 'llama-3.1-8b-instant';
+  });
+  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
+  const modelDropdownRef = useRef<HTMLDivElement>(null);
 
   // Rocket Launch Animation States & Refs
   const [isRocketLaunching, setIsRocketLaunching] = useState(false);
@@ -52,6 +111,17 @@ export function AIChat() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Close model dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
+        setIsModelDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Load chat sessions on mount
   useEffect(() => {
@@ -248,7 +318,11 @@ export function AIChat() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ prompt: query, sessionId: currentSessionId }),
+        body: JSON.stringify({
+          prompt: query,
+          sessionId: currentSessionId,
+          model: selectedModel,
+        }),
       });
 
       if (!response.ok) {
@@ -405,21 +479,110 @@ export function AIChat() {
         />
 
         {/* Chat Title Top Bar */}
-        <div className="px-6 py-3.5 border-b border-zinc-800/80 bg-[#0c0c0e]/80 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+        <div className="px-4 sm:px-6 py-3 border-b border-zinc-800/80 bg-[#0c0c0e]/80 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
             <h2 className="text-xs sm:text-sm font-semibold text-zinc-200 truncate">
               {activeSessionTitle}
             </h2>
           </div>
 
-          <button
-            onClick={() => setIsNewChatModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-white text-xs font-medium transition-colors"
-          >
-            <MessageSquarePlus className="w-3.5 h-3.5 text-blue-400" />
-            <span>New Session</span>
-          </button>
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            {/* Model Selector Dropdown */}
+            <div className="relative" ref={modelDropdownRef}>
+              <button
+                type="button"
+                onClick={() => setIsModelDropdownOpen((prev) => !prev)}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-300 hover:text-white text-xs font-medium transition-all shadow-sm group"
+                title="Select AI Model"
+              >
+                <Cpu className="w-3.5 h-3.5 text-cyan-400 group-hover:scale-110 transition-transform" />
+                <span className="font-mono text-[11px] text-zinc-200 max-w-[130px] sm:max-w-none truncate">
+                  {AVAILABLE_MODELS.find((m) => m.id === selectedModel)?.name || selectedModel}
+                </span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 text-zinc-400 transition-transform duration-200 ${
+                    isModelDropdownOpen ? 'rotate-180 text-cyan-400' : ''
+                  }`}
+                />
+              </button>
+
+              {/* Dropdown Menu */}
+              {isModelDropdownOpen && (
+                <div className="absolute right-0 mt-2 w-72 sm:w-80 rounded-xl bg-[#121215] border border-zinc-800 shadow-2xl p-1.5 z-50 animate-in fade-in zoom-in-95 duration-150 backdrop-blur-xl">
+                  <div className="px-2.5 py-2 border-b border-zinc-800/60 mb-1 flex items-center justify-between">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                      Select LLM Engine
+                    </span>
+                    <span className="text-[10px] text-zinc-500 font-mono">
+                      Multi-Model
+                    </span>
+                  </div>
+
+                  <div className="space-y-1">
+                    {AVAILABLE_MODELS.map((model) => {
+                      const isSelected = selectedModel === model.id;
+                      return (
+                        <button
+                          key={model.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedModel(model.id);
+                            if (typeof window !== 'undefined') {
+                              localStorage.setItem('deployhub_selected_model', model.id);
+                            }
+                            setIsModelDropdownOpen(false);
+                            toast.success(`Model switched to ${model.name}`);
+                          }}
+                          className={`w-full text-left p-2.5 rounded-lg transition-all flex items-start gap-2.5 ${
+                            isSelected
+                              ? 'bg-cyan-950/40 border border-cyan-500/30 text-white'
+                              : 'hover:bg-zinc-800/60 border border-transparent text-zinc-300'
+                          }`}
+                        >
+                          <div className="mt-0.5 shrink-0">
+                            {isSelected ? (
+                              <div className="w-4 h-4 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center">
+                                <Check className="w-3 h-3" />
+                              </div>
+                            ) : (
+                              <div className="w-4 h-4 rounded-full bg-zinc-800/80 border border-zinc-700 flex items-center justify-center text-zinc-500">
+                                <Cpu className="w-2.5 h-2.5" />
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-1 mb-0.5">
+                              <span className="text-xs font-semibold font-mono text-zinc-100 truncate">
+                                {model.name}
+                              </span>
+                              <span
+                                className={`text-[9px] px-1.5 py-0.5 rounded border font-medium uppercase shrink-0 ${model.badgeColor}`}
+                              >
+                                {model.badge}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-zinc-400 line-clamp-1 leading-snug">
+                              {model.description}
+                            </p>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <button
+              onClick={() => setIsNewChatModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-white text-xs font-medium transition-colors shadow-sm"
+            >
+              <MessageSquarePlus className="w-3.5 h-3.5 text-blue-400" />
+              <span className="hidden sm:inline">New Session</span>
+            </button>
+          </div>
         </div>
 
         {/* Conversation Stream */}
