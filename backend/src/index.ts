@@ -4,6 +4,7 @@ import Redis from 'ioredis';
 import app from './app';
 import { env, Logger, mongoose } from '@deployhub/shared';
 import { initQdrantCollection } from './services/qdrant.service';
+import { initNeonDatabase } from './services/neon.service';
 
 const startServer = async () => {
   try {
@@ -12,6 +13,9 @@ const startServer = async () => {
 
     // Initialize Qdrant collection
     await initQdrantCollection();
+
+    // Initialize Neon PostgreSQL tables
+    await initNeonDatabase();
 
     const httpServer = createServer(app);
     const io = new Server(httpServer, {

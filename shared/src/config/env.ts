@@ -18,6 +18,7 @@ const envSchema = z.object({
   GROQ_API_KEY: z.string().optional().default(''),
   HUGGINGFACE_API_KEY: z.string().optional().default(''),
   QDRANT_URL: z.string().default('http://localhost:6333'),
+  NEON_DATABASE_URL: z.string().optional().default(''),
 });
 
 export const env = envSchema.parse(process.env);

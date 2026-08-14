@@ -63,5 +63,5 @@ export declare const createLangChainTools: (userId: string, organizationId: stri
 /**
  * Execute AI Agent Prompt with Groq LLM & LangChain Tools
  */
-export declare const processAIQuery: (query: string, userId: string, organizationId: string, res: Response) => Promise<void>;
+export declare const processAIQuery: (query: string, userId: string, organizationId: string, res: Response, sessionId?: string) => Promise<void>;
 //# sourceMappingURL=ai.service.d.ts.map

@@ -9,12 +9,15 @@ const ioredis_1 = __importDefault(require("ioredis"));
 const app_1 = __importDefault(require("./app"));
 const shared_1 = require("@deployhub/shared");
 const qdrant_service_1 = require("./services/qdrant.service");
+const neon_service_1 = require("./services/neon.service");
 const startServer = async () => {
     try {
         await shared_1.mongoose.connect(shared_1.env.MONGODB_URI);
         shared_1.Logger.info('Backend', 'Connected to MongoDB');
         // Initialize Qdrant collection
         await (0, qdrant_service_1.initQdrantCollection)();
+        // Initialize Neon PostgreSQL tables
+        await (0, neon_service_1.initNeonDatabase)();
         const httpServer = (0, http_1.createServer)(app_1.default);
         const io = new socket_io_1.Server(httpServer, {
             cors: { origin: '*' },
