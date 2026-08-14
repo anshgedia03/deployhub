@@ -423,19 +423,52 @@ export const createLangChainTools = (
           return JSON.stringify({ found: false, message: `Project '${cleanProj}' not found.` });
         }
 
-        // Populate employee names in accessControl
+        // Populate employee names in accessControl, plus org owner & full-access members
         const employeeIds = deployment.accessControl?.map((ac: any) => ac.employeeId) || [];
-        const employees = await User.find({ _id: { $in: employeeIds } }).select('username email role');
+        const [assignedUsers, fullAccessEmployees, orgOwner] = await Promise.all([
+          User.find({ _id: { $in: employeeIds } }).select('username email role accessLevel'),
+          User.find({ organizationId, accountType: 'employee', accessLevel: 'full' }).select('username email role accessLevel'),
+          User.findById(organizationId).select('username email accountType role'),
+        ]);
 
-        const permissions = deployment.accessControl?.map((ac: any) => {
-          const emp = employees.find(e => e._id.toString() === ac.employeeId?.toString());
+        const assignedList = deployment.accessControl?.map((ac: any) => {
+          const emp = assignedUsers.find((e: any) => e._id.toString() === ac.employeeId?.toString());
           return {
             employeeId: ac.employeeId,
             username: emp ? emp.username : 'Unknown',
             email: emp ? emp.email : 'Unknown',
-            accessLevel: ac.accessLevel,
+            role: emp?.role || 'Member',
+            accessLevel: ac.accessLevel || 'limited',
           };
         }) || [];
+
+        const allAccessibleMembers: any[] = [];
+        if (orgOwner) {
+          allAccessibleMembers.push({
+            username: orgOwner.username,
+            email: orgOwner.email,
+            role: orgOwner.role || 'Organization Owner',
+            accessLevel: 'full (owner)',
+          });
+        }
+        for (const fa of fullAccessEmployees) {
+          allAccessibleMembers.push({
+            username: fa.username,
+            email: fa.email,
+            role: fa.role || 'Member',
+            accessLevel: 'full (org default)',
+          });
+        }
+        for (const asg of assignedList) {
+          if (!allAccessibleMembers.some((m) => m.username === asg.username)) {
+            allAccessibleMembers.push({
+              username: asg.username,
+              email: asg.email,
+              role: asg.role,
+              accessLevel: asg.accessLevel,
+            });
+          }
+        }
 
         const result = {
           found: true,
@@ -449,8 +482,9 @@ export const createLangChainTools = (
             gitUrl: deployment.gitUrl,
             branch: deployment.branch,
             createdAt: deployment.createdAt,
-            assignedEmployees: permissions,
-          }
+            assignedEmployees: assignedList,
+            allAccessibleMembers,
+          },
         };
 
         sendSSE(res, 'tool_end', {
@@ -1482,6 +1516,49 @@ export const processAIQuery = async (
       }
     }
 
+    // 2. PROJECT ACCESS & PERMISSION QUERY (e.g. "who can access this project", "who can acess", "who has access")
+    const isProjectAccessQuery =
+      (lowerQuery.includes('who') && (lowerQuery.includes('access') || lowerQuery.includes('acess') || lowerQuery.includes('acces') || lowerQuery.includes('permission'))) ||
+      ((lowerQuery.includes('who can') || lowerQuery.includes('who has')) && (lowerQuery.includes('project') || lowerQuery.includes('this') || selectedProjects.length > 0)) ||
+      ((lowerQuery.includes('access of') || lowerQuery.includes('acess of') || lowerQuery.includes('permissions of')) && (lowerQuery.includes('project') || selectedProjects.length > 0));
+
+    if (isProjectAccessQuery && !isAccessMutation) {
+      const words = query.split(/\s+/);
+      const targetProjName =
+        selectedProjects[0] ||
+        parseContextEntities(query).project ||
+        words.find(w => w.length > 1 && !['who', 'can', 'has', 'access', 'acess', 'acces', 'this', 'the', 'project', 'for', 'to', 'is', 'in', 'query', 'context'].includes(w.toLowerCase().replace(/[^a-zA-Z0-9_-]/g, '')))?.replace(/[^a-zA-Z0-9_-]/g, '') ||
+        '';
+
+      if (targetProjName) {
+        const projTool = tools.find(t => t.name === 'get_project_details')!;
+        const projDataStr = await projTool.invoke({ projectNameOrId: targetProjName });
+        const projData = JSON.parse(projDataStr);
+
+        sendSSE(res, 'thinking', { stepTitle: 'Analyzing project access permissions...' });
+
+        if (projData.found) {
+          const p = projData.project;
+          let reply = `### Access Permissions for Project **${p.projectName}**\n\n`;
+          reply += `• **Status**: \`${p.status?.toUpperCase()}\`\n• **Port**: ${p.port || 'N/A'}\n• **Public URL**: ${p.publicUrl !== 'N/A' ? `[${p.publicUrl}](${p.publicUrl})` : 'N/A'}\n\n`;
+          reply += `**Users with Access to this Project:**\n\n`;
+
+          if (p.allAccessibleMembers && p.allAccessibleMembers.length > 0) {
+            reply += `| Username | Email | Role | Access Level |\n`;
+            reply += `| :--- | :--- | :--- | :--- |\n`;
+            p.allAccessibleMembers.forEach((m: any) => {
+              reply += `| **${m.username}** | ${m.email || 'N/A'} | ${m.role || 'Member'} | \`${m.accessLevel?.toUpperCase()}\` |\n`;
+            });
+          } else {
+            reply += `• **Organization Owner**: Full access across all projects.\n`;
+          }
+
+          await completeAIResponse(reply);
+          return;
+        }
+      }
+    }
+
     // Specific employee lookup in fallback mode
     if (lowerQuery.includes('who is') || lowerQuery.includes('detail of') || lowerQuery.includes('details of') || lowerQuery.includes('access of')) {
       const words = query.split(/\s+/);
@@ -1802,14 +1879,15 @@ export const processAIQuery = async (
           '   - For organization statistics, dashboard, executive overview, or overall system health -> invoke `get_organization_overview`.\n' +
           '   - For employee/member lists, roles, access levels, and accessible projects -> invoke `get_organization_employees`.\n' +
           '   - For a single employee profile lookup -> invoke `get_employee_details`.\n' +
-          '   - For project lists, deployment statuses, URLs, and assigned members -> invoke `get_user_deployments`.\n' +
+          '   - For questions asking who can access a project (e.g. "who can access this project", "who has access to two", "who is assigned") -> invoke `get_project_details` with { projectNameOrId: projectName } and list all organization owners, full access members, and assigned limited employees.\n' +
+          '   - For project lists, deployment statuses, URLs, and general deployments overview -> invoke `get_user_deployments`.\n' +
           '   - For security matrix / cross-grid permissions -> invoke `get_project_access_matrix`.\n' +
           '   - For network port allocations and port conflict checks -> invoke `get_port_allocations`.\n' +
           '   - For diagnosing build failures, crashes, or deployment errors -> invoke `analyze_build_failure`.\n' +
           '   - For raw deployment build/runtime logs -> invoke `get_deployment_logs`.\n' +
           '   - For Docker host container health -> invoke `get_container_health`.\n' +
           '   - For semantic search across documentation & build logs -> invoke `search_vector_knowledge`.\n' +
-          '   - Only invoke `get_project_details` when the user explicitly names a single specific project to inspect.\n' +
+          '   - When a specific project is selected in context or named, invoke `get_project_details` to inspect it.\n' +
           '5. AUTOMATION ACTIONS & CONTEXT PARSING (HIGHEST PRIORITY):\n' +
           '   - When the user query includes `[Selected Context: ...]` (e.g. `[Selected Context: PROJECT: two [RUNNING], EMPLOYEE: anshZIG [LIMITED]]`) or refers to "this user", "this project", "them", "it":\n' +
           '     1. Extract the employee username (e.g. "anshZIG") and project name (e.g. "two") from the context or query.\n' +
