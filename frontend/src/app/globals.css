@@ -128,3 +128,15 @@
     @apply font-sans;
   }
 }
+
+@layer utilities {
+  @keyframes inputShake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-2.5px); }
+    75% { transform: translateX(2.5px); }
+  }
+
+  .animate-input-shake {
+    animation: inputShake 0.14s ease-in-out 2;
+  }
+}

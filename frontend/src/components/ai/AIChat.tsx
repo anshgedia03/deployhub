@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, RefreshCw, Sparkles, MessageSquarePlus } from 'lucide-react';
+import { Send, Bot, User, RefreshCw, MessageSquarePlus, Rocket } from 'lucide-react';
 import { getApiUrl } from '@/config/api';
 import { toast } from 'sonner';
 import ReactMarkdown from 'react-markdown';
@@ -9,6 +9,7 @@ import remarkGfm from 'remark-gfm';
 import { ToolStepLoader, ToolStep } from './ToolStepLoader';
 import { ChatHistorySidebar, ChatSession } from './ChatHistorySidebar';
 import { NewChatModal } from './NewChatModal';
+import { RocketLaunchAnimation } from './RocketLaunchAnimation';
 
 interface Message {
   id: string;
@@ -24,6 +25,13 @@ export function AIChat() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [activeSessionTitle, setActiveSessionTitle] = useState<string>('DeployHub AI Assistant');
   const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
+
+  // Rocket Launch Animation States & Refs
+  const [isRocketLaunching, setIsRocketLaunching] = useState(false);
+  const [isInputShaking, setIsInputShaking] = useState(false);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+  const rocketButtonRef = useRef<HTMLButtonElement>(null);
+  const inputWrapperRef = useRef<HTMLDivElement>(null);
 
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -180,6 +188,18 @@ export function AIChat() {
       console.error('Failed to delete session:', err);
       toast.error('Could not delete session');
     }
+  };
+
+  // Trigger Rocket Launch Animation
+  const handleRocketLaunch = () => {
+    if (isRocketLaunching) return;
+    setIsRocketLaunching(true);
+
+    // Collision shake occurs ~1.45s into the flight path
+    setTimeout(() => {
+      setIsInputShaking(true);
+      setTimeout(() => setIsInputShaking(false), 280);
+    }, 1450);
   };
 
   // Send Message
@@ -371,7 +391,19 @@ export function AIChat() {
       />
 
       {/* Main Chat Center Column */}
-      <div className="flex-1 flex flex-col h-full relative min-w-0 bg-[#09090b]">
+      <div
+        ref={chatContainerRef}
+        className="flex-1 flex flex-col h-full relative min-w-0 bg-[#09090b] overflow-hidden"
+      >
+        {/* Rocket Launch Overlay Animation */}
+        <RocketLaunchAnimation
+          isLaunching={isRocketLaunching}
+          onAnimationComplete={() => setIsRocketLaunching(false)}
+          containerRef={chatContainerRef}
+          buttonRef={rocketButtonRef}
+          inputRef={inputWrapperRef}
+        />
+
         {/* Chat Title Top Bar */}
         <div className="px-6 py-3.5 border-b border-zinc-800/80 bg-[#0c0c0e]/80 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -538,28 +570,50 @@ export function AIChat() {
               e.preventDefault();
               handleSend();
             }}
-            className="relative flex items-center max-w-3xl mx-auto"
+            className="relative flex items-center max-w-3xl mx-auto w-full gap-2.5"
           >
-            <input
-              type="text"
-              value={inputPrompt}
-              onChange={(e) => setInputPrompt(e.target.value)}
-              placeholder={activeSessionId ? "Message DeployHub AI..." : "Click '+ New Chat' or type here to start..."}
-              disabled={isLoading}
-              className="w-full bg-zinc-900 border border-zinc-800 focus:border-zinc-700 rounded-full px-5 py-3.5 pr-14 text-xs sm:text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-700 transition-all disabled:opacity-50"
-            />
-
+            {/* Rocket Action Button */}
             <button
-              type="submit"
-              disabled={!inputPrompt.trim() || isLoading}
-              className="absolute right-2 p-2 rounded-full bg-white hover:bg-zinc-200 text-black font-semibold transition-all disabled:opacity-30 disabled:bg-zinc-800 disabled:text-zinc-600"
+              type="button"
+              ref={rocketButtonRef}
+              onClick={handleRocketLaunch}
+              disabled={isRocketLaunching}
+              className="relative p-3 rounded-full bg-zinc-900/90 border border-zinc-800 text-sky-400 hover:text-cyan-300 hover:border-cyan-500/50 hover:bg-zinc-800/90 shadow-[0_0_12px_rgba(56,189,248,0.15)] hover:shadow-[0_0_22px_rgba(6,182,212,0.45)] transition-all duration-300 group shrink-0 disabled:opacity-40 disabled:pointer-events-none active:scale-95 cursor-pointer"
+              title="Launch DeployHub Power-Up"
             >
-              {isLoading ? (
-                <RefreshCw className="w-4 h-4 animate-spin text-black" />
-              ) : (
-                <Send className="w-4 h-4 text-black" />
-              )}
+              {/* Subtle ambient idle pulse ring */}
+              <span className="absolute inset-0 rounded-full bg-cyan-400/10 animate-ping opacity-25 pointer-events-none" />
+              <Rocket className="w-4 h-4 transition-transform duration-300 group-hover:-translate-y-0.5 group-hover:rotate-12 group-hover:scale-110" />
             </button>
+
+            {/* Input Wrapper with Dynamic Collision Shake */}
+            <div
+              ref={inputWrapperRef}
+              className={`relative flex-1 flex items-center transition-transform ${
+                isInputShaking ? 'animate-input-shake' : ''
+              }`}
+            >
+              <input
+                type="text"
+                value={inputPrompt}
+                onChange={(e) => setInputPrompt(e.target.value)}
+                placeholder={activeSessionId ? "Message DeployHub AI..." : "Click '+ New Chat' or type here to start..."}
+                disabled={isLoading}
+                className="w-full bg-zinc-900 border border-zinc-800 focus:border-zinc-700 rounded-full px-5 py-3.5 pr-14 text-xs sm:text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-700 transition-all disabled:opacity-50"
+              />
+
+              <button
+                type="submit"
+                disabled={!inputPrompt.trim() || isLoading}
+                className="absolute right-2 p-2 rounded-full bg-white hover:bg-zinc-200 text-black font-semibold transition-all disabled:opacity-30 disabled:bg-zinc-800 disabled:text-zinc-600"
+              >
+                {isLoading ? (
+                  <RefreshCw className="w-4 h-4 animate-spin text-black" />
+                ) : (
+                  <Send className="w-4 h-4 text-black" />
+                )}
+              </button>
+            </div>
           </form>
         </div>
       </div>

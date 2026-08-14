@@ -8,7 +8,7 @@ export interface SSEEventData {
 /**
  * Build dynamic LangChain tools for a given user & organization context
  */
-export declare const createLangChainTools: (userId: string, organizationId: string, res: Response) => (DynamicStructuredTool<z.ZodObject<{
+export declare const createLangChainTools: (userId: string, organizationId: string, res: Response, executedTools?: any[]) => (DynamicStructuredTool<z.ZodObject<{
     roleFilter: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>, {
     roleFilter?: string | undefined;

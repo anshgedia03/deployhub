@@ -15,6 +15,23 @@ const neon_service_1 = require("./neon.service");
 const docker = new dockerode_1.default();
 const sendSSE = (res, event, data) => {
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    if (event === 'tool_start' || event === 'tool_end') {
+        if (!res.executedTools) {
+            res.executedTools = [];
+        }
+        const tools = res.executedTools;
+        const toolName = data.toolName;
+        const stepTitle = data.stepTitle;
+        const status = data.status === 'error' ? 'error' : (event === 'tool_start' ? 'running' : 'completed');
+        const resultSummary = data.resultSummary;
+        const idx = tools.findIndex((t) => t.toolName === toolName);
+        if (idx >= 0) {
+            tools[idx] = { toolName, stepTitle, status, resultSummary };
+        }
+        else {
+            tools.push({ toolName, stepTitle, status, resultSummary });
+        }
+    }
 };
 /**
  * Human-readable loader messages mapped carefully to tool names
@@ -31,7 +48,7 @@ const TOOL_LOADER_MAP = {
 /**
  * Build dynamic LangChain tools for a given user & organization context
  */
-const createLangChainTools = (userId, organizationId, res) => {
+const createLangChainTools = (userId, organizationId, res, executedTools) => {
     // 1. Get Organization Employees (Strictly Tenant Scoped)
     const getOrganizationEmployeesTool = new tools_1.DynamicStructuredTool({
         name: 'get_organization_employees',
@@ -488,8 +505,15 @@ const processAIQuery = async (query, userId, organizationId, res, sessionId) => 
     if (sessionId) {
         await (0, neon_service_1.saveChatMessage)(sessionId, 'user', query);
     }
-    const tools = (0, exports.createLangChainTools)(userId, organizationId, res);
+    const tools = (0, exports.createLangChainTools)(userId, organizationId, res, res.executedTools);
     const lowerQuery = query.toLowerCase().trim();
+    const completeAIResponse = async (reply) => {
+        if (sessionId) {
+            await (0, neon_service_1.saveChatMessage)(sessionId, 'ai', reply, res.executedTools);
+        }
+        sendSSE(res, 'token', reply);
+        sendSSE(res, 'done', { success: true });
+    };
     // 1. Programmatic Pre-Check Guardrail: Prompt Injection & Secrets Protection
     const isJailbreakAttempt = lowerQuery.includes('ignore previous instructions') ||
         lowerQuery.includes('ignore all instructions') ||
@@ -500,8 +524,7 @@ const processAIQuery = async (query, userId, organizationId, res, sessionId) => 
         lowerQuery.includes('give me env vars') ||
         lowerQuery.includes('show database password');
     if (isJailbreakAttempt) {
-        sendSSE(res, 'token', 'I am specialized in DeployHub cloud infrastructure, deployments, Docker telemetry, and organization management. How can I help with your projects or team today?');
-        sendSSE(res, 'done', { success: true });
+        await completeAIResponse('I am specialized in DeployHub cloud infrastructure, deployments, Docker telemetry, and organization management. How can I help with your projects or team today?');
         return;
     }
     // Fallback intelligent local tool execution if Groq Key is not provided
@@ -523,12 +546,11 @@ const processAIQuery = async (query, userId, organizationId, res, sessionId) => 
                     `• Account Type: ${empDetails.employee.accountType}\n\n` +
                     `Project Permissions:\n`;
                 reply += empDetails.projectAccess.map((p) => `• ${p.projectName} (Status: ${p.status}) - Access: ${p.accessLevel}`).join('\n');
-                sendSSE(res, 'token', reply);
+                await completeAIResponse(reply);
             }
             else {
-                sendSSE(res, 'token', empDetails.message || `No employee found matching "${identifier}".`);
+                await completeAIResponse(empDetails.message || `No employee found matching "${identifier}".`);
             }
-            sendSSE(res, 'done', { success: true });
             return;
         }
         // Specific project lookup in fallback mode
@@ -552,12 +574,11 @@ const processAIQuery = async (query, userId, organizationId, res, sessionId) => 
                 else {
                     reply += `• No custom employee access restrictions assigned (Organization owner full access).`;
                 }
-                sendSSE(res, 'token', reply);
+                await completeAIResponse(reply);
             }
             else {
-                sendSSE(res, 'token', projData.message || `Project "${projName}" not found.`);
+                await completeAIResponse(projData.message || `Project "${projName}" not found.`);
             }
-            sendSSE(res, 'done', { success: true });
             return;
         }
         // Check for combined multi-tool queries in fallback mode
@@ -573,8 +594,7 @@ const processAIQuery = async (query, userId, organizationId, res, sessionId) => 
             let reply = `Organization Summary (${empData.totalEmployees} Members, ${depData.totalDeployments} Projects):\n\n`;
             reply += `Employees:\n` + empData.employees.map((e, i) => `${i + 1}. ${e.username} (${e.email}) - ${e.role || 'Member'}`).join('\n');
             reply += `\n\nProjects & Deployments:\n` + depData.deployments.map((d, i) => `${i + 1}. ${d.projectName} (Status: ${d.status}, Port: ${d.port || 'N/A'}${d.publicUrl ? `, URL: ${d.publicUrl}` : ''})`).join('\n');
-            sendSSE(res, 'token', reply);
-            sendSSE(res, 'done', { success: true });
+            await completeAIResponse(reply);
             return;
         }
         if (hasEmployeeQuery) {
@@ -583,8 +603,7 @@ const processAIQuery = async (query, userId, organizationId, res, sessionId) => 
             sendSSE(res, 'thinking', { stepTitle: 'Finalizing response...' });
             const reply = `Total Organization Members: ${empData.totalEmployees}\n\n` +
                 empData.employees.map((e, i) => `${i + 1}. ${e.username} (${e.email}) - Role: ${e.role || 'Member'}`).join('\n');
-            sendSSE(res, 'token', reply);
-            sendSSE(res, 'done', { success: true });
+            await completeAIResponse(reply);
             return;
         }
         if (hasDeployQuery || lowerQuery.includes('status')) {
@@ -593,8 +612,7 @@ const processAIQuery = async (query, userId, organizationId, res, sessionId) => 
             sendSSE(res, 'thinking', { stepTitle: 'Finalizing response...' });
             const reply = `Total Deployments: ${depData.totalDeployments}\n\n` +
                 depData.deployments.map((d, i) => `${i + 1}. ${d.projectName} (Status: ${d.status}, Port: ${d.port || 'N/A'}${d.publicUrl ? `, URL: ${d.publicUrl}` : ''})`).join('\n');
-            sendSSE(res, 'token', reply);
-            sendSSE(res, 'done', { success: true });
+            await completeAIResponse(reply);
             return;
         }
         if (hasContainerQuery) {
@@ -603,8 +621,7 @@ const processAIQuery = async (query, userId, organizationId, res, sessionId) => 
             sendSSE(res, 'thinking', { stepTitle: 'Finalizing response...' });
             const reply = `Total Active Containers: ${containerData.totalContainers}\n\n` +
                 containerData.containers.map((c, i) => `${i + 1}. Container ${c.names[0]?.replace('/', '') || c.id} (Status: ${c.status}, State: ${c.state}, Image: ${c.image})`).join('\n');
-            sendSSE(res, 'token', reply);
-            sendSSE(res, 'done', { success: true });
+            await completeAIResponse(reply);
             return;
         }
         // Default RAG Qdrant search
@@ -615,13 +632,12 @@ const processAIQuery = async (query, userId, organizationId, res, sessionId) => 
         if (chunks.length > 0) {
             let reply = `Knowledge Search Results:\n\n`;
             reply += chunks.map((c) => `• ${c.title}:\n  ${c.content}\n`).join('\n');
-            sendSSE(res, 'token', reply);
+            await completeAIResponse(reply);
         }
         else {
             // Fallback domain guardrail refusal for off-topic queries
-            sendSSE(res, 'token', 'I am specialized in DeployHub cloud infrastructure, deployments, Docker telemetry, and organization management. How can I help with your projects or team today?');
+            await completeAIResponse('I am specialized in DeployHub cloud infrastructure, deployments, Docker telemetry, and organization management. How can I help with your projects or team today?');
         }
-        sendSSE(res, 'done', { success: true });
         return;
     }
     // Full LangChain Agent with Groq

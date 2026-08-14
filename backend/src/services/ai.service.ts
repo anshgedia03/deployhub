@@ -17,6 +17,24 @@ export interface SSEEventData {
 
 const sendSSE = (res: Response, event: string, data: any) => {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+
+  if (event === 'tool_start' || event === 'tool_end') {
+    if (!(res as any).executedTools) {
+      (res as any).executedTools = [];
+    }
+    const tools = (res as any).executedTools;
+    const toolName = data.toolName;
+    const stepTitle = data.stepTitle;
+    const status = data.status === 'error' ? 'error' : (event === 'tool_start' ? 'running' : 'completed');
+    const resultSummary = data.resultSummary;
+
+    const idx = tools.findIndex((t: any) => t.toolName === toolName);
+    if (idx >= 0) {
+      tools[idx] = { toolName, stepTitle, status, resultSummary };
+    } else {
+      tools.push({ toolName, stepTitle, status, resultSummary });
+    }
+  }
 };
 
 /**
@@ -35,7 +53,7 @@ const TOOL_LOADER_MAP: Record<string, string> = {
 /**
  * Build dynamic LangChain tools for a given user & organization context
  */
-export const createLangChainTools = (userId: string, organizationId: string, res: Response) => {
+export const createLangChainTools = (userId: string, organizationId: string, res: Response, executedTools?: any[]) => {
   // 1. Get Organization Employees (Strictly Tenant Scoped)
   const getOrganizationEmployeesTool = new DynamicStructuredTool({
     name: 'get_organization_employees',
@@ -537,9 +555,17 @@ export const processAIQuery = async (
     await saveChatMessage(sessionId, 'user', query);
   }
 
-  const tools = createLangChainTools(userId, organizationId, res);
+  const tools = createLangChainTools(userId, organizationId, res, (res as any).executedTools);
 
   const lowerQuery = query.toLowerCase().trim();
+
+  const completeAIResponse = async (reply: string) => {
+    if (sessionId) {
+      await saveChatMessage(sessionId, 'ai', reply, (res as any).executedTools);
+    }
+    sendSSE(res, 'token', reply);
+    sendSSE(res, 'done', { success: true });
+  };
 
   // 1. Programmatic Pre-Check Guardrail: Prompt Injection & Secrets Protection
   const isJailbreakAttempt =
@@ -553,8 +579,7 @@ export const processAIQuery = async (
     lowerQuery.includes('show database password');
 
   if (isJailbreakAttempt) {
-    sendSSE(res, 'token', 'I am specialized in DeployHub cloud infrastructure, deployments, Docker telemetry, and organization management. How can I help with your projects or team today?');
-    sendSSE(res, 'done', { success: true });
+    await completeAIResponse('I am specialized in DeployHub cloud infrastructure, deployments, Docker telemetry, and organization management. How can I help with your projects or team today?');
     return;
   }
 
@@ -580,11 +605,10 @@ export const processAIQuery = async (
           `• Account Type: ${empDetails.employee.accountType}\n\n` +
           `Project Permissions:\n`;
         reply += empDetails.projectAccess.map((p: any) => `• ${p.projectName} (Status: ${p.status}) - Access: ${p.accessLevel}`).join('\n');
-        sendSSE(res, 'token', reply);
+        await completeAIResponse(reply);
       } else {
-        sendSSE(res, 'token', empDetails.message || `No employee found matching "${identifier}".`);
+        await completeAIResponse(empDetails.message || `No employee found matching "${identifier}".`);
       }
-      sendSSE(res, 'done', { success: true });
       return;
     }
 
@@ -610,11 +634,10 @@ export const processAIQuery = async (
         } else {
           reply += `• No custom employee access restrictions assigned (Organization owner full access).`;
         }
-        sendSSE(res, 'token', reply);
+        await completeAIResponse(reply);
       } else {
-        sendSSE(res, 'token', projData.message || `Project "${projName}" not found.`);
+        await completeAIResponse(projData.message || `Project "${projName}" not found.`);
       }
-      sendSSE(res, 'done', { success: true });
       return;
     }
 
@@ -636,8 +659,7 @@ export const processAIQuery = async (
       reply += `Employees:\n` + empData.employees.map((e: any, i: number) => `${i + 1}. ${e.username} (${e.email}) - ${e.role || 'Member'}`).join('\n');
       reply += `\n\nProjects & Deployments:\n` + depData.deployments.map((d: any, i: number) => `${i + 1}. ${d.projectName} (Status: ${d.status}, Port: ${d.port || 'N/A'}${d.publicUrl ? `, URL: ${d.publicUrl}` : ''})`).join('\n');
 
-      sendSSE(res, 'token', reply);
-      sendSSE(res, 'done', { success: true });
+      await completeAIResponse(reply);
       return;
     }
 
@@ -650,8 +672,7 @@ export const processAIQuery = async (
       const reply = `Total Organization Members: ${empData.totalEmployees}\n\n` +
         empData.employees.map((e: any, i: number) => `${i + 1}. ${e.username} (${e.email}) - Role: ${e.role || 'Member'}`).join('\n');
 
-      sendSSE(res, 'token', reply);
-      sendSSE(res, 'done', { success: true });
+      await completeAIResponse(reply);
       return;
     }
 
@@ -664,8 +685,7 @@ export const processAIQuery = async (
       const reply = `Total Deployments: ${depData.totalDeployments}\n\n` +
         depData.deployments.map((d: any, i: number) => `${i + 1}. ${d.projectName} (Status: ${d.status}, Port: ${d.port || 'N/A'}${d.publicUrl ? `, URL: ${d.publicUrl}` : ''})`).join('\n');
 
-      sendSSE(res, 'token', reply);
-      sendSSE(res, 'done', { success: true });
+      await completeAIResponse(reply);
       return;
     }
 
@@ -678,8 +698,7 @@ export const processAIQuery = async (
       const reply = `Total Active Containers: ${containerData.totalContainers}\n\n` +
         containerData.containers.map((c: any, i: number) => `${i + 1}. Container ${c.names[0]?.replace('/', '') || c.id} (Status: ${c.status}, State: ${c.state}, Image: ${c.image})`).join('\n');
 
-      sendSSE(res, 'token', reply);
-      sendSSE(res, 'done', { success: true });
+      await completeAIResponse(reply);
       return;
     }
 
@@ -693,17 +712,11 @@ export const processAIQuery = async (
     if (chunks.length > 0) {
       let reply = `Knowledge Search Results:\n\n`;
       reply += chunks.map((c: any) => `• ${c.title}:\n  ${c.content}\n`).join('\n');
-      sendSSE(res, 'token', reply);
+      await completeAIResponse(reply);
     } else {
       // Fallback domain guardrail refusal for off-topic queries
-      sendSSE(
-        res,
-        'token',
-        'I am specialized in DeployHub cloud infrastructure, deployments, Docker telemetry, and organization management. How can I help with your projects or team today?'
-      );
+      await completeAIResponse('I am specialized in DeployHub cloud infrastructure, deployments, Docker telemetry, and organization management. How can I help with your projects or team today?');
     }
-
-    sendSSE(res, 'done', { success: true });
     return;
   }
 
