@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Rocket } from 'lucide-react';
 
 interface Point {
@@ -8,10 +8,8 @@ interface Point {
   y: number;
 }
 
-interface Particle {
+interface Particle extends Point {
   id: number;
-  x: number;
-  y: number;
   vx: number;
   vy: number;
   size: number;
@@ -19,423 +17,460 @@ interface Particle {
   color: string;
 }
 
+interface InputBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  collision: Point;
+}
+
 interface RocketLaunchAnimationProps {
   isLaunching: boolean;
   onAnimationComplete: () => void;
+  onImpact?: () => void;
   containerRef: React.RefObject<HTMLDivElement | null>;
   buttonRef: React.RefObject<HTMLButtonElement | null>;
   inputRef: React.RefObject<HTMLDivElement | null>;
 }
 
+type Phase = 'idle' | 'charging' | 'flying' | 'impact' | 'energy' | 'complete';
+
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+const easeInOutCubic = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+
+const getSplinePoint = (points: Point[], t: number): Point => {
+  const clampedT = clamp(t, 0, 1);
+  const segments = points.length - 1;
+  const rawIndex = clampedT * segments;
+  const index = Math.min(Math.floor(rawIndex), segments - 1);
+  const localT = rawIndex - index;
+  const p0 = points[Math.max(index - 1, 0)];
+  const p1 = points[index];
+  const p2 = points[Math.min(index + 1, points.length - 1)];
+  const p3 = points[Math.min(index + 2, points.length - 1)];
+  const tt = localT * localT;
+  const ttt = tt * localT;
+
+  return {
+    x: 0.5 * ((2 * p1.x) + (-p0.x + p2.x) * localT + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * tt + (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * ttt),
+    y: 0.5 * ((2 * p1.y) + (-p0.y + p2.y) * localT + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * tt + (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * ttt),
+  };
+};
+
+const usePrefersReducedMotion = () => {
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const handleChange = () => setPrefersReducedMotion(mediaQuery.matches);
+
+    handleChange();
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, []);
+
+  return prefersReducedMotion;
+};
+
 export const RocketLaunchAnimation: React.FC<RocketLaunchAnimationProps> = ({
   isLaunching,
   onAnimationComplete,
+  onImpact,
   containerRef,
   buttonRef,
   inputRef,
 }) => {
-  const [phase, setPhase] = useState<'idle' | 'charging' | 'flying' | 'collided' | 'energy' | 'complete'>('idle');
-  const [rocketPos, setRocketPos] = useState<{ x: number; y: number; angle: number; scale: number }>({
-    x: 0,
-    y: 0,
-    angle: -45,
-    scale: 1,
-  });
+  const [phase, setPhase] = useState<Phase>('idle');
+  const [rocket, setRocket] = useState({ x: 0, y: 0, angle: -28, scale: 1, speed: 0 });
   const [particles, setParticles] = useState<Particle[]>([]);
   const [energyProgress, setEnergyProgress] = useState(0);
-  const [inputRect, setInputRect] = useState<{ width: number; height: number; x: number; y: number }>({
-    width: 0,
-    height: 0,
-    x: 0,
-    y: 0,
-  });
+  const [inputBounds, setInputBounds] = useState<InputBounds | null>(null);
 
-  const animFrameRef = useRef<number | null>(null);
-  const startTimeRef = useRef<number>(0);
-  const pathPointsRef = useRef<Point[]>([]);
+  const frameRef = useRef<number | null>(null);
+  const timeoutRefs = useRef<number[]>([]);
+  const hasImpactedRef = useRef(false);
+  const prefersReducedMotion = usePrefersReducedMotion();
 
-  // Catmull-Rom spline curve evaluator for 100% smooth continuous multipoint paths
-  const getCatmullRomPoint = (p0: Point, p1: Point, p2: Point, p3: Point, t: number): Point => {
-    const t2 = t * t;
-    const t3 = t2 * t;
-    return {
-      x: 0.5 * ((2 * p1.x) + (-p0.x + p2.x) * t + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 + (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3),
-      y: 0.5 * ((2 * p1.y) + (-p0.y + p2.y) * t + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 + (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3),
+  const clearTimers = useCallback(() => {
+    if (frameRef.current) {
+      cancelAnimationFrame(frameRef.current);
+      frameRef.current = null;
+    }
+    timeoutRefs.current.forEach((timer) => window.clearTimeout(timer));
+    timeoutRefs.current = [];
+  }, []);
+
+  const addTimer = useCallback((callback: () => void, delay: number) => {
+    const timer = window.setTimeout(callback, delay);
+    timeoutRefs.current.push(timer);
+    return timer;
+  }, []);
+
+  const measureScene = useCallback(() => {
+    const container = containerRef.current;
+    const button = buttonRef.current;
+    const input = inputRef.current;
+
+    if (!container || !button || !input) return null;
+
+    const containerRect = container.getBoundingClientRect();
+    const buttonRect = button.getBoundingClientRect();
+    const inputRect = input.getBoundingClientRect();
+    const padding = 18;
+    const safeWidth = Math.max(1, containerRect.width);
+    const safeHeight = Math.max(1, containerRect.height);
+
+    const start = {
+      x: clamp(buttonRect.left - containerRect.left + buttonRect.width / 2, padding, safeWidth - padding),
+      y: clamp(buttonRect.top - containerRect.top + buttonRect.height / 2, padding, safeHeight - padding),
     };
-  };
 
-  // Check for prefers-reduced-motion
-  const prefersReducedMotion = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const radius = Math.max(0, inputRect.height / 2 - 1);
+    const arcAngle = Math.PI / 4;
+    const inputX = inputRect.left - containerRect.left;
+    const inputY = inputRect.top - containerRect.top;
+    const rightArcCenter = inputX + inputRect.width - radius - 1;
+    const inputCenterY = inputY + inputRect.height / 2;
+    const collision = {
+      x: clamp(rightArcCenter + Math.cos(arcAngle) * radius, inputX + inputRect.width * 0.72, inputX + inputRect.width - 2),
+      y: clamp(inputCenterY + Math.sin(arcAngle) * radius, inputY + 2, inputY + inputRect.height - 2),
+    };
+
+    return {
+      containerRect,
+      start,
+      inputBounds: {
+        x: inputX,
+        y: inputY,
+        width: inputRect.width,
+        height: inputRect.height,
+        collision,
+      },
+    };
+  }, [buttonRef, containerRef, inputRef]);
+
+  const finishAnimation = useCallback(() => {
+    setPhase('idle');
+    setParticles([]);
+    setEnergyProgress(0);
+    hasImpactedRef.current = false;
+    onAnimationComplete();
+  }, [onAnimationComplete]);
+
+  const animateEnergyBorder = useCallback(() => {
+    setPhase('energy');
+    setEnergyProgress(0);
+
+    const startTime = performance.now();
+    const duration = prefersReducedMotion ? 700 : 1640;
+    const rounds = prefersReducedMotion ? 1 : 2;
+
+    const step = (now: number) => {
+      const progress = clamp((now - startTime) / duration, 0, 1);
+      setEnergyProgress(progress * rounds);
+
+      if (progress < 1) {
+        frameRef.current = requestAnimationFrame(step);
+        return;
+      }
+
+      setPhase('complete');
+      addTimer(finishAnimation, prefersReducedMotion ? 260 : 380);
+    };
+
+    frameRef.current = requestAnimationFrame(step);
+  }, [addTimer, finishAnimation, prefersReducedMotion]);
+
+  const triggerImpact = useCallback((collisionPoint: Point) => {
+    if (hasImpactedRef.current) return;
+    hasImpactedRef.current = true;
+    onImpact?.();
+    setPhase('impact');
+    setRocket((prev) => ({ ...prev, x: collisionPoint.x, y: collisionPoint.y, scale: 1.22 }));
+
+    const sparks = Array.from({ length: prefersReducedMotion ? 6 : 16 }, (_, index) => {
+      const angle = -Math.PI * 0.9 + (index / 15) * Math.PI * 1.55;
+      const speed = Math.random() * 2.4 + 1.2;
+
+      return {
+        id: performance.now() + index,
+        x: collisionPoint.x,
+        y: collisionPoint.y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        size: Math.random() * 2.6 + 1.2,
+        opacity: 1,
+        color: index % 3 === 0 ? '#e0faff' : index % 2 === 0 ? '#67e8f9' : '#38bdf8',
+      };
+    });
+
+    setParticles(sparks);
+    addTimer(animateEnergyBorder, prefersReducedMotion ? 90 : 150);
+  }, [addTimer, animateEnergyBorder, onImpact, prefersReducedMotion]);
 
   const startAnimation = useCallback(() => {
-    if (!containerRef.current || !buttonRef.current || !inputRef.current) {
-      onAnimationComplete();
+    clearTimers();
+
+    const scene = measureScene();
+    if (!scene) {
+      finishAnimation();
       return;
     }
 
-    const containerRect = containerRef.current.getBoundingClientRect();
-    const btnRect = buttonRef.current.getBoundingClientRect();
-    const inRect = inputRef.current.getBoundingClientRect();
-
-    // Calculate positions relative to container
-    const startPoint: Point = {
-      x: btnRect.left - containerRect.left + btnRect.width / 2,
-      y: btnRect.top - containerRect.top + btnRect.height / 2,
-    };
-
-    // Target collision point near the right/bottom edge of the input box
-    const targetPoint: Point = {
-      x: inRect.right - containerRect.left - 24,
-      y: inRect.top - containerRect.top + inRect.height / 2 + 6,
-    };
-
-    setInputRect({
-      width: inRect.width,
-      height: inRect.height,
-      x: inRect.left - containerRect.left,
-      y: inRect.top - containerRect.top,
-    });
+    setInputBounds(scene.inputBounds);
+    setParticles([]);
+    hasImpactedRef.current = false;
 
     if (prefersReducedMotion) {
-      // Reduced motion fallback: quick flash & energy pulse
-      setPhase('collided');
-      setTimeout(() => {
-        setPhase('energy');
-        setEnergyProgress(0);
-        const startTime = performance.now();
-        const duration = 1200; // 1 subtle round
-
-        const step = (now: number) => {
-          const elapsed = now - startTime;
-          const progress = Math.min(1, elapsed / duration);
-          setEnergyProgress(progress);
-          if (progress < 1) {
-            requestAnimationFrame(step);
-          } else {
-            setPhase('complete');
-            setTimeout(onAnimationComplete, 200);
-          }
-        };
-        requestAnimationFrame(step);
-      }, 150);
+      setRocket({ x: scene.start.x, y: scene.start.y, angle: -28, scale: 1, speed: 0 });
+      setPhase('charging');
+      addTimer(() => triggerImpact(scene.inputBounds.collision), 140);
       return;
     }
 
-    // Step 1: Pre-launch downward compression (120ms)
     setPhase('charging');
-    setRocketPos({
-      x: startPoint.x,
-      y: startPoint.y + 4,
-      angle: -30,
-      scale: 0.85,
-    });
+    setRocket({ x: scene.start.x, y: scene.start.y + 5, angle: -30, scale: 0.84, speed: 0 });
 
-    setTimeout(() => {
-      // Step 2: Launch & Flight calculation
+    addTimer(() => {
       setPhase('flying');
 
-      const W = containerRect.width;
-      const H = containerRect.height;
+      const width = scene.containerRect.width;
+      const height = scene.containerRect.height;
+      const minX = 18;
+      const maxX = Math.max(minX, width - 18);
+      const minY = 18;
+      const maxY = Math.max(minY, height - 76);
+      const roomy = width > 720 && height > 480;
 
-      // Dynamic waypoints creating a sweeping continuous roller-coaster arc across the chat area
-      const wp0 = { ...startPoint };
-      
-      // Arc up and right towards the center-top
-      const wp1 = {
-        x: W * 0.45,
-        y: Math.max(20, H * 0.15)
-      };
-      
-      // Swoop down to the center-left to create a loop
-      const wp2 = {
-        x: W * 0.25,
-        y: H * 0.55
-      };
-      
-      // Pull up and right towards the top-right corner
-      const wp3 = {
-        x: Math.min(W - 40, W * 0.8),
-        y: Math.max(40, H * 0.25)
-      };
-      
-      // Dive into the target
-      const wp4 = { ...targetPoint };
+      const waypoints: Point[] = [
+        scene.start,
+        {
+          x: clamp(scene.start.x + width * (roomy ? 0.24 : 0.18), minX, maxX),
+          y: clamp(height * 0.18, minY, maxY),
+        },
+        {
+          x: clamp(width * (roomy ? 0.72 : 0.58), minX, maxX),
+          y: clamp(height * 0.30, minY, maxY),
+        },
+        {
+          x: clamp(width * (roomy ? 0.34 : 0.28), minX, maxX),
+          y: clamp(height * (roomy ? 0.58 : 0.46), minY, maxY),
+        },
+        {
+          x: clamp(width * 0.82, minX, maxX),
+          y: clamp(height * 0.20, minY, maxY),
+        },
+        scene.inputBounds.collision,
+      ];
 
-      const waypoints = [wp0, wp1, wp2, wp3, wp4];
-      pathPointsRef.current = waypoints;
-      startTimeRef.current = performance.now();
+      const startTime = performance.now();
+      const duration = roomy ? 1520 : 1180;
+      let lastParticleTime = 0;
 
-      const FLIGHT_DURATION = 1450; // Total smooth flight time
+      const step = (now: number) => {
+        const rawT = clamp((now - startTime) / duration, 0, 1);
+        const easedT = easeInOutCubic(rawT);
+        const current = getSplinePoint(waypoints, easedT);
+        const next = getSplinePoint(waypoints, clamp(easedT + 0.015, 0, 1));
+        const dx = next.x - current.x;
+        const dy = next.y - current.y;
+        const speed = Math.hypot(dx, dy);
+        const angle = (Math.atan2(dy, dx) * 180) / Math.PI + 45;
+        const impactScale = rawT > 0.9 ? 1.14 - (rawT - 0.9) * 1.6 : 1.04 + speed * 0.015;
 
-      const getSplinePoint = (globalT: number) => {
-        const clampedT = Math.max(0, Math.min(1, globalT));
-        const numSegments = waypoints.length - 1; // 4 segments
-        const floatIndex = clampedT * numSegments;
-        const index = Math.min(Math.floor(floatIndex), numSegments - 1);
-        const localT = floatIndex - index;
-
-        const p0 = waypoints[Math.max(index - 1, 0)];
-        const p1 = waypoints[index];
-        const p2 = waypoints[Math.min(index + 1, waypoints.length - 1)];
-        const p3 = waypoints[Math.min(index + 2, waypoints.length - 1)];
-
-        return getCatmullRomPoint(p0, p1, p2, p3, localT);
-      };
-
-      const animateFlight = (now: number) => {
-        const elapsed = now - startTimeRef.current;
-        const rawT = Math.min(1, elapsed / FLIGHT_DURATION);
-        // Smoothstep easing
-        const t = rawT * rawT * (3 - 2 * rawT);
-
-        // Calculate positions dynamically from a single continuous spline
-        const curPos = getSplinePoint(t);
-        const nextPos = getSplinePoint(t + 0.02);
-
-        // Calculate heading angle
-        const dx = nextPos.x - curPos.x;
-        const dy = nextPos.y - curPos.y;
-        const angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI + 45; // Adjust for Rocket SVG orientation
-
-        // Rocket scaling on final dive
-        const rocketScale = rawT > 0.85 ? 1.15 - (rawT - 0.85) * 0.8 : 1.05;
-
-        setRocketPos({
-          x: curPos.x,
-          y: curPos.y,
-          angle: angleDeg,
-          scale: rocketScale,
+        setRocket({
+          x: current.x,
+          y: current.y,
+          angle,
+          scale: clamp(impactScale, 0.98, 1.16),
+          speed: clamp(speed, 0, 8),
         });
 
-        // Emit exhaust trail particles
-        if (Math.random() > 0.25) {
+        if (now - lastParticleTime > 38) {
+          lastParticleTime = now;
           setParticles((prev) => [
-            ...prev.slice(-18),
+            ...prev.slice(-24),
             {
-              id: Math.random(),
-              x: curPos.x - dx * 0.4 + (Math.random() - 0.5) * 6,
-              y: curPos.y - dy * 0.4 + (Math.random() - 0.5) * 6,
-              vx: -dx * 0.15 + (Math.random() - 0.5) * 1.5,
-              vy: -dy * 0.15 + (Math.random() - 0.5) * 1.5,
-              size: Math.random() * 4 + 2,
-              opacity: 0.9,
-              color: Math.random() > 0.5 ? '#38bdf8' : '#00f0ff',
+              id: now + Math.random(),
+              x: current.x - dx * 1.1 + (Math.random() - 0.5) * 5,
+              y: current.y - dy * 1.1 + (Math.random() - 0.5) * 5,
+              vx: -dx * 0.2 + (Math.random() - 0.5) * 0.8,
+              vy: -dy * 0.2 + (Math.random() - 0.5) * 0.8,
+              size: Math.random() * 3.2 + 1.4,
+              opacity: 0.86,
+              color: Math.random() > 0.45 ? '#38bdf8' : '#22d3ee',
             },
           ]);
         }
 
         if (rawT < 1) {
-          animFrameRef.current = requestAnimationFrame(animateFlight);
-        } else {
-          // Collision phase
-          handleCollision(targetPoint);
+          frameRef.current = requestAnimationFrame(step);
+          return;
         }
+
+        triggerImpact(scene.inputBounds.collision);
       };
 
-      animFrameRef.current = requestAnimationFrame(animateFlight);
-    }, 120);
-  }, [containerRef, buttonRef, inputRef, onAnimationComplete, prefersReducedMotion]);
+      frameRef.current = requestAnimationFrame(step);
+    }, 130);
+  }, [addTimer, clearTimers, finishAnimation, measureScene, prefersReducedMotion, triggerImpact]);
 
-  // Handle Collision & Sparks
-  const handleCollision = (targetPoint: Point) => {
-    setPhase('collided');
-
-    // Create explosion sparks
-    const impactSparks: Particle[] = Array.from({ length: 14 }).map((_, i) => {
-      const angle = (i / 14) * Math.PI * 2;
-      const speed = Math.random() * 3.5 + 1.5;
-      return {
-        id: Math.random(),
-        x: targetPoint.x,
-        y: targetPoint.y,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed,
-        size: Math.random() * 3 + 1.5,
-        opacity: 1,
-        color: i % 2 === 0 ? '#38bdf8' : '#67e8f9',
-      };
-    });
-    setParticles(impactSparks);
-
-    // After brief collision impact flash (100ms), start the 2-round energy border animation
-    setTimeout(() => {
-      setPhase('energy');
-      setEnergyProgress(0);
-
-      const ENERGY_DURATION = 1600; // ~800ms per round * 2 rounds = 1600ms
-      const energyStartTime = performance.now();
-
-      const animateEnergy = (now: number) => {
-        const elapsed = now - energyStartTime;
-        const progress = Math.min(2, (elapsed / ENERGY_DURATION) * 2); // 0 to 2 for exactly 2 full rounds
-        setEnergyProgress(progress);
-
-        if (progress < 2) {
-          animFrameRef.current = requestAnimationFrame(animateEnergy);
-        } else {
-          // Final pulse flash
-          setPhase('complete');
-          setTimeout(() => {
-            setPhase('idle');
-            setParticles([]);
-            onAnimationComplete();
-          }, 350);
-        }
-      };
-
-      animFrameRef.current = requestAnimationFrame(animateEnergy);
-    }, 100);
-  };
-
-  // Trigger when isLaunching becomes true
   useEffect(() => {
-    if (isLaunching && phase === 'idle') {
-      startAnimation();
-    }
+    if (!isLaunching || phase !== 'idle') return;
+    const launchFrame = requestAnimationFrame(startAnimation);
+    return () => cancelAnimationFrame(launchFrame);
   }, [isLaunching, phase, startAnimation]);
 
-  // Particle physics loop
+  useEffect(() => {
+    if (!isLaunching) return;
+
+    const handleResize = () => {
+      const scene = measureScene();
+      if (!scene) return;
+      setInputBounds(scene.inputBounds);
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [isLaunching, measureScene]);
+
   useEffect(() => {
     if (particles.length === 0) return;
 
-    const interval = setInterval(() => {
+    const step = () => {
       setParticles((prev) =>
         prev
-          .map((p) => ({
-            ...p,
-            x: p.x + p.vx,
-            y: p.y + p.vy,
-            opacity: p.opacity - 0.07,
-            size: Math.max(0, p.size - 0.15),
+          .map((particle) => ({
+            ...particle,
+            x: particle.x + particle.vx,
+            y: particle.y + particle.vy,
+            vx: particle.vx * 0.96,
+            vy: particle.vy * 0.96,
+            opacity: particle.opacity - 0.055,
+            size: Math.max(0, particle.size - 0.08),
           }))
-          .filter((p) => p.opacity > 0)
+          .filter((particle) => particle.opacity > 0 && particle.size > 0)
       );
-    }, 16);
+    };
 
-    return () => clearInterval(interval);
+    const timer = window.setInterval(step, 16);
+    return () => window.clearInterval(timer);
   }, [particles.length]);
 
-  // Cleanup
-  useEffect(() => {
-    return () => {
-      if (animFrameRef.current) {
-        cancelAnimationFrame(animFrameRef.current);
-      }
-    };
-  }, []);
+  useEffect(() => clearTimers, [clearTimers]);
 
-  if (phase === 'idle') return null;
+  if (phase === 'idle' || !inputBounds) return null;
 
-  // SVG perimeter calculations for rounded pill input border
-  const W = Math.max(0, inputRect.width - 2);
-  const H = Math.max(0, inputRect.height - 2);
-  const R = H / 2;
-  const perimeter = 2 * Math.max(0, W - 2 * R) + 2 * Math.PI * R;
-  const strokeLength = perimeter * 0.28; // Length of the traveling energy beam (28% of perimeter)
-  // Travel distance: starts at 0 and travels 2 * perimeter
-  const strokeOffset = -energyProgress * perimeter;
+  const borderWidth = Math.max(0, inputBounds.width - 2);
+  const borderHeight = Math.max(0, inputBounds.height - 2);
+  const radius = Math.max(0, borderHeight / 2);
+  const rightArcCenterX = inputBounds.width - radius - 1;
+  const centerY = inputBounds.height / 2;
+  const startAngle = Math.PI / 4;
+  const startX = rightArcCenterX + Math.cos(startAngle) * radius;
+  const startY = centerY + Math.sin(startAngle) * radius;
+  const perimeter = 2 * Math.max(0, borderWidth - 2 * radius) + 2 * Math.PI * radius;
+  const dashLength = perimeter * (prefersReducedMotion ? 0.82 : 0.22);
+  const dashOffset = -energyProgress * perimeter;
+  const energyPath = [
+    `M ${startX} ${startY}`,
+    `A ${radius} ${radius} 0 0 1 ${rightArcCenterX} ${centerY + radius}`,
+    `H ${radius + 1}`,
+    `A ${radius} ${radius} 0 0 1 ${radius + 1} ${centerY - radius}`,
+    `H ${rightArcCenterX}`,
+    `A ${radius} ${radius} 0 1 1 ${startX} ${startY}`,
+  ].join(' ');
 
   return (
     <div className="absolute inset-0 pointer-events-none z-50 overflow-hidden">
-      {/* Particles & Sparks */}
-      {particles.map((p) => (
+      {particles.map((particle) => (
         <div
-          key={p.id}
-          className="absolute rounded-full pointer-events-none blur-[0.5px]"
+          key={particle.id}
+          className="absolute rounded-full blur-[0.5px]"
           style={{
-            left: `${p.x}px`,
-            top: `${p.y}px`,
-            width: `${p.size}px`,
-            height: `${p.size}px`,
-            backgroundColor: p.color,
-            opacity: p.opacity,
-            boxShadow: `0 0 ${p.size * 2}px ${p.color}`,
+            left: `${particle.x}px`,
+            top: `${particle.y}px`,
+            width: `${particle.size}px`,
+            height: `${particle.size}px`,
+            opacity: particle.opacity,
+            backgroundColor: particle.color,
+            boxShadow: `0 0 ${particle.size * 2.6}px ${particle.color}`,
             transform: 'translate(-50%, -50%)',
           }}
         />
       ))}
 
-      {/* Flying Rocket */}
-      {(phase === 'charging' || phase === 'flying') && (
+      {(phase === 'charging' || phase === 'flying' || phase === 'impact') && !prefersReducedMotion && (
         <div
-          className="absolute pointer-events-none transition-transform duration-75 ease-out"
+          className="absolute transition-transform duration-100 ease-out"
           style={{
-            left: `${rocketPos.x}px`,
-            top: `${rocketPos.y}px`,
-            transform: `translate(-50%, -50%) rotate(${rocketPos.angle}deg) scale(${rocketPos.scale})`,
-            filter: 'drop-shadow(0 0 10px #00f0ff) drop-shadow(0 0 20px #38bdf8)',
+            left: `${rocket.x}px`,
+            top: `${rocket.y}px`,
+            transform: `translate(-50%, -50%) rotate(${rocket.angle}deg) scale(${rocket.scale})`,
+            filter: `drop-shadow(0 0 ${10 + rocket.speed * 1.6}px rgba(34,211,238,0.94)) drop-shadow(0 0 ${20 + rocket.speed * 2}px rgba(14,165,233,0.45))`,
           }}
         >
-          <div className="relative flex items-center justify-center">
-            {/* Engine plume flame */}
-            <div className="absolute -bottom-2.5 -left-2.5 w-3 h-3 rounded-full bg-cyan-400 blur-[2px] animate-pulse opacity-90" />
-            <Rocket className="w-5 h-5 text-cyan-300 fill-cyan-400/20" />
+          <div className="relative grid place-items-center">
+            {phase === 'flying' && (
+              <span className="absolute h-5 w-2 -translate-x-3 translate-y-3 rounded-full bg-cyan-300/70 blur-[3px]" />
+            )}
+            <Rocket className="h-5 w-5 text-cyan-200 fill-sky-400/15" />
           </div>
         </div>
       )}
 
-      {/* Collision Impact Flash */}
-      {phase === 'collided' && (
+      {phase === 'impact' && (
         <div
-          className="absolute rounded-full pointer-events-none animate-ping duration-150"
+          className="absolute rounded-full animate-rocket-impact"
           style={{
-            left: `${inputRect.x + inputRect.width - 24}px`,
-            top: `${inputRect.y + inputRect.height / 2}px`,
-            width: '36px',
-            height: '36px',
-            background: 'radial-gradient(circle, rgba(0,240,255,0.9) 0%, rgba(56,189,248,0.4) 60%, transparent 100%)',
+            left: `${inputBounds.collision.x}px`,
+            top: `${inputBounds.collision.y}px`,
+            width: '42px',
+            height: '42px',
             transform: 'translate(-50%, -50%)',
+            background: 'radial-gradient(circle, rgba(224,250,255,0.95) 0%, rgba(34,211,238,0.52) 38%, rgba(14,165,233,0.18) 68%, transparent 100%)',
           }}
         />
       )}
 
-      {/* Traveling Energy Border SVG Overlay */}
-      {(phase === 'energy' || phase === 'complete') && inputRect.width > 0 && (
+      {(phase === 'energy' || phase === 'complete') && (
         <div
-          className={`absolute pointer-events-none transition-all duration-300 ${
-            phase === 'complete' ? 'shadow-[0_0_25px_rgba(6,182,212,0.6)] rounded-full' : ''
+          className={`absolute rounded-full transition-opacity duration-300 ${
+            phase === 'complete' ? 'animate-rocket-input-final-pulse' : ''
           }`}
           style={{
-            left: `${inputRect.x}px`,
-            top: `${inputRect.y}px`,
-            width: `${inputRect.width}px`,
-            height: `${inputRect.height}px`,
+            left: `${inputBounds.x}px`,
+            top: `${inputBounds.y}px`,
+            width: `${inputBounds.width}px`,
+            height: `${inputBounds.height}px`,
           }}
         >
-          <svg
-            className="w-full h-full overflow-visible"
-            viewBox={`0 0 ${inputRect.width} ${inputRect.height}`}
-          >
+          <svg className="h-full w-full overflow-visible" viewBox={`0 0 ${inputBounds.width} ${inputBounds.height}`}>
             <defs>
-              <linearGradient id="rocketEnergyGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#00f0ff" stopOpacity="1" />
-                <stop offset="60%" stopColor="#38bdf8" stopOpacity="0.8" />
-                <stop offset="100%" stopColor="#0ea5e9" stopOpacity="0" />
+              <linearGradient id="deployhubRocketEnergy" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="#e0faff" stopOpacity="0" />
+                <stop offset="35%" stopColor="#7dd3fc" stopOpacity="0.72" />
+                <stop offset="72%" stopColor="#22d3ee" stopOpacity="1" />
+                <stop offset="100%" stopColor="#38bdf8" stopOpacity="0" />
               </linearGradient>
-              <filter id="rocketNeonGlow" x="-20%" y="-20%" width="140%" height="140%">
-                <feGaussianBlur stdDeviation="3.5" result="blur" />
+              <filter id="deployhubRocketGlow" x="-45%" y="-45%" width="190%" height="190%">
+                <feGaussianBlur stdDeviation="3.2" result="blur" />
                 <feMerge>
                   <feMergeNode in="blur" />
                   <feMergeNode in="SourceGraphic" />
                 </feMerge>
               </filter>
             </defs>
-
-            {/* Glowing neon traveling line */}
-            <rect
-              x="1"
-              y="1"
-              width={W}
-              height={H}
-              rx={R}
-              ry={R}
+            <path
+              d={energyPath}
               fill="none"
-              stroke="url(#rocketEnergyGradient)"
+              stroke="url(#deployhubRocketEnergy)"
               strokeWidth="2"
-              strokeDasharray={`${strokeLength} ${perimeter - strokeLength}`}
-              strokeDashoffset={strokeOffset}
-              filter="url(#rocketNeonGlow)"
-              className="transition-all"
+              strokeLinecap="round"
+              strokeDasharray={`${dashLength} ${Math.max(1, perimeter - dashLength)}`}
+              strokeDashoffset={dashOffset}
+              filter="url(#deployhubRocketGlow)"
             />
           </svg>
         </div>

@@ -194,12 +194,11 @@ export function AIChat() {
   const handleRocketLaunch = () => {
     if (isRocketLaunching) return;
     setIsRocketLaunching(true);
+  };
 
-    // Collision shake occurs ~1.45s into the flight path
-    setTimeout(() => {
-      setIsInputShaking(true);
-      setTimeout(() => setIsInputShaking(false), 280);
-    }, 1450);
+  const handleRocketImpact = () => {
+    setIsInputShaking(true);
+    window.setTimeout(() => setIsInputShaking(false), 280);
   };
 
   // Send Message
@@ -399,6 +398,7 @@ export function AIChat() {
         <RocketLaunchAnimation
           isLaunching={isRocketLaunching}
           onAnimationComplete={() => setIsRocketLaunching(false)}
+          onImpact={handleRocketImpact}
           containerRef={chatContainerRef}
           buttonRef={rocketButtonRef}
           inputRef={inputWrapperRef}
@@ -578,11 +578,11 @@ export function AIChat() {
               ref={rocketButtonRef}
               onClick={handleRocketLaunch}
               disabled={isRocketLaunching}
-              className="relative p-3 rounded-full bg-zinc-900/90 border border-zinc-800 text-sky-400 hover:text-cyan-300 hover:border-cyan-500/50 hover:bg-zinc-800/90 shadow-[0_0_12px_rgba(56,189,248,0.15)] hover:shadow-[0_0_22px_rgba(6,182,212,0.45)] transition-all duration-300 group shrink-0 disabled:opacity-40 disabled:pointer-events-none active:scale-95 cursor-pointer"
+              aria-label="Launch DeployHub power-up"
+              className="relative grid h-11 w-11 place-items-center rounded-full bg-zinc-950/90 border border-sky-400/15 text-sky-400 shadow-[0_0_14px_rgba(56,189,248,0.16),inset_0_0_12px_rgba(14,165,233,0.06)] transition-all duration-300 group shrink-0 disabled:opacity-45 disabled:pointer-events-none active:scale-95 cursor-pointer hover:scale-105 hover:text-cyan-200 hover:border-cyan-400/55 hover:bg-zinc-900 hover:shadow-[0_0_24px_rgba(56,189,248,0.44),inset_0_0_16px_rgba(14,165,233,0.12)] animate-rocket-button-idle"
               title="Launch DeployHub Power-Up"
             >
-              {/* Subtle ambient idle pulse ring */}
-              <span className="absolute inset-0 rounded-full bg-cyan-400/10 animate-ping opacity-25 pointer-events-none" />
+              <span className="absolute inset-[-3px] rounded-full border border-cyan-300/20 opacity-70 pointer-events-none animate-rocket-button-ring" />
               <Rocket className="w-4 h-4 transition-transform duration-300 group-hover:-translate-y-0.5 group-hover:rotate-12 group-hover:scale-110" />
             </button>
 
