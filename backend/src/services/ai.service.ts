@@ -57,6 +57,9 @@ const TOOL_LOADER_MAP: Record<string, string> = {
   update_project_access_level: 'Updating project access permissions...',
   update_employee_org_access: 'Updating organization-wide access level...',
   restart_project_container: 'Restarting Docker container service...',
+  start_project_container: 'Starting Docker container...',
+  stop_project_container: 'Stopping Docker container...',
+  update_project_git_url: 'Updating project git repository URL...',
 };
 
 /**
@@ -69,6 +72,19 @@ export const createLangChainTools = (
   executedTools?: any[],
   scopedEntities?: { selectedProjects?: string[] | undefined; selectedEmployees?: string[] | undefined }
 ) => {
+  const verifyToolAccess = async (project: any) => {
+    const invokingUser = await User.findById(userId);
+    if (!invokingUser) return { hasAccess: false, reason: 'User not found' };
+    if (invokingUser.accountType === 'organization' || invokingUser.accessLevel === 'full') {
+      return { hasAccess: true };
+    }
+    const userAccess = project.accessControl?.find((ac: any) => ac.employeeId?.toString() === userId.toString());
+    if (userAccess && userAccess.accessLevel === 'full') {
+      return { hasAccess: true };
+    }
+    return { hasAccess: false, reason: `Permission Denied: You do not have 'full' access to perform this action on project "${project.projectName}". Current access level is "${userAccess ? userAccess.accessLevel : 'none'}".` };
+  };
+
   // 1. Get Organization Employees (Strictly Tenant Scoped & RAG-Scoped if provided)
   const getOrganizationEmployeesTool = new DynamicStructuredTool({
     name: 'get_organization_employees',
@@ -1332,6 +1348,17 @@ export const createLangChainTools = (
           return JSON.stringify({ success: false, message: `Project '${cleanProj}' was not found.` });
         }
 
+        const accessCheck = await verifyToolAccess(project);
+        if (!accessCheck.hasAccess) {
+          sendSSE(res, 'tool_end', {
+            toolName: 'restart_project_container',
+            stepTitle: TOOL_LOADER_MAP.restart_project_container,
+            status: 'completed',
+            resultSummary: 'Permission Denied',
+          });
+          return JSON.stringify({ success: false, message: accessCheck.reason });
+        }
+
         if (!project.containerId) {
           sendSSE(res, 'tool_end', {
             toolName: 'restart_project_container',
@@ -1374,6 +1401,297 @@ export const createLangChainTools = (
     },
   });
 
+  // 15. Automation: Start Project Container
+  const startProjectContainerTool = new DynamicStructuredTool({
+    name: 'start_project_container',
+    description: 'AUTOMATION ACTION: Start a stopped Docker container service for a deployed project.',
+    schema: z.object({
+      projectNameOrId: z.string().describe('Project name or deployment ID to start'),
+    }),
+    func: async ({ projectNameOrId }: { projectNameOrId: string }) => {
+      sendSSE(res, 'tool_start', {
+        toolName: 'start_project_container',
+        stepTitle: TOOL_LOADER_MAP.start_project_container,
+        status: 'running',
+      });
+
+      try {
+        const cleanProj = projectNameOrId.trim();
+        const project = await Deployment.findOne({
+          $and: [
+            { $or: [{ organizationId }, { userId: organizationId }] },
+            {
+              $or: [
+                { projectName: { $regex: `^${cleanProj}$`, $options: 'i' } },
+                { deploymentId: cleanProj }
+              ]
+            }
+          ]
+        });
+
+        if (!project) {
+          sendSSE(res, 'tool_end', {
+            toolName: 'start_project_container',
+            stepTitle: TOOL_LOADER_MAP.start_project_container,
+            status: 'completed',
+            resultSummary: `Project not found: ${cleanProj}`,
+          });
+          return JSON.stringify({ success: false, message: `Project '${cleanProj}' was not found.` });
+        }
+
+        const accessCheck = await verifyToolAccess(project);
+        if (!accessCheck.hasAccess) {
+          sendSSE(res, 'tool_end', {
+            toolName: 'start_project_container',
+            stepTitle: TOOL_LOADER_MAP.start_project_container,
+            status: 'completed',
+            resultSummary: 'Permission Denied',
+          });
+          return JSON.stringify({ success: false, message: accessCheck.reason });
+        }
+
+        if (project.status?.toUpperCase() === 'RUNNING') {
+          sendSSE(res, 'tool_end', {
+            toolName: 'start_project_container',
+            stepTitle: TOOL_LOADER_MAP.start_project_container,
+            status: 'completed',
+            resultSummary: 'Already running',
+          });
+          return JSON.stringify({ success: false, message: `Project '${project.projectName}' is already running.` });
+        }
+
+        if (!project.containerId) {
+          sendSSE(res, 'tool_end', {
+            toolName: 'start_project_container',
+            stepTitle: TOOL_LOADER_MAP.start_project_container,
+            status: 'completed',
+            resultSummary: 'No container registered',
+          });
+          return JSON.stringify({ success: false, message: `Project '${project.projectName}' does not have an active container registered.` });
+        }
+
+        const container = docker.getContainer(project.containerId);
+        await container.start();
+
+        project.status = 'RUNNING';
+        await project.save();
+
+        const result = {
+          success: true,
+          message: `Successfully started Docker container for project "${project.projectName}". Status is now RUNNING.`,
+          projectName: project.projectName,
+          containerId: project.containerId.substring(0, 12),
+        };
+
+        sendSSE(res, 'tool_end', {
+          toolName: 'start_project_container',
+          stepTitle: TOOL_LOADER_MAP.start_project_container,
+          status: 'completed',
+          resultSummary: `Started container for ${project.projectName}`,
+        });
+
+        return JSON.stringify(result);
+      } catch (err: any) {
+        sendSSE(res, 'tool_end', {
+          toolName: 'start_project_container',
+          stepTitle: TOOL_LOADER_MAP.start_project_container,
+          status: 'error',
+        });
+        return JSON.stringify({ success: false, error: err?.message || err });
+      }
+    },
+  });
+
+  // 16. Automation: Stop Project Container
+  const stopProjectContainerTool = new DynamicStructuredTool({
+    name: 'stop_project_container',
+    description: 'AUTOMATION ACTION: Stop a running Docker container service for a deployed project.',
+    schema: z.object({
+      projectNameOrId: z.string().describe('Project name or deployment ID to stop'),
+    }),
+    func: async ({ projectNameOrId }: { projectNameOrId: string }) => {
+      sendSSE(res, 'tool_start', {
+        toolName: 'stop_project_container',
+        stepTitle: TOOL_LOADER_MAP.stop_project_container,
+        status: 'running',
+      });
+
+      try {
+        const cleanProj = projectNameOrId.trim();
+        const project = await Deployment.findOne({
+          $and: [
+            { $or: [{ organizationId }, { userId: organizationId }] },
+            {
+              $or: [
+                { projectName: { $regex: `^${cleanProj}$`, $options: 'i' } },
+                { deploymentId: cleanProj }
+              ]
+            }
+          ]
+        });
+
+        if (!project) {
+          sendSSE(res, 'tool_end', {
+            toolName: 'stop_project_container',
+            stepTitle: TOOL_LOADER_MAP.stop_project_container,
+            status: 'completed',
+            resultSummary: `Project not found: ${cleanProj}`,
+          });
+          return JSON.stringify({ success: false, message: `Project '${cleanProj}' was not found.` });
+        }
+
+        const accessCheck = await verifyToolAccess(project);
+        if (!accessCheck.hasAccess) {
+          sendSSE(res, 'tool_end', {
+            toolName: 'stop_project_container',
+            stepTitle: TOOL_LOADER_MAP.stop_project_container,
+            status: 'completed',
+            resultSummary: 'Permission Denied',
+          });
+          return JSON.stringify({ success: false, message: accessCheck.reason });
+        }
+
+        if (project.status?.toUpperCase() === 'STOPPED') {
+          sendSSE(res, 'tool_end', {
+            toolName: 'stop_project_container',
+            stepTitle: TOOL_LOADER_MAP.stop_project_container,
+            status: 'completed',
+            resultSummary: 'Already stopped',
+          });
+          return JSON.stringify({ success: false, message: `Project '${project.projectName}' is already stopped.` });
+        }
+
+        if (!project.containerId) {
+          sendSSE(res, 'tool_end', {
+            toolName: 'stop_project_container',
+            stepTitle: TOOL_LOADER_MAP.stop_project_container,
+            status: 'completed',
+            resultSummary: 'No container registered',
+          });
+          return JSON.stringify({ success: false, message: `Project '${project.projectName}' does not have an active container registered.` });
+        }
+
+        const container = docker.getContainer(project.containerId);
+        await container.stop();
+
+        project.status = 'STOPPED';
+        await project.save();
+
+        const result = {
+          success: true,
+          message: `Successfully stopped Docker container for project "${project.projectName}". Status is now STOPPED.`,
+          projectName: project.projectName,
+          containerId: project.containerId.substring(0, 12),
+        };
+
+        sendSSE(res, 'tool_end', {
+          toolName: 'stop_project_container',
+          stepTitle: TOOL_LOADER_MAP.stop_project_container,
+          status: 'completed',
+          resultSummary: `Stopped container for ${project.projectName}`,
+        });
+
+        return JSON.stringify(result);
+      } catch (err: any) {
+        sendSSE(res, 'tool_end', {
+          toolName: 'stop_project_container',
+          stepTitle: TOOL_LOADER_MAP.stop_project_container,
+          status: 'error',
+        });
+        return JSON.stringify({ success: false, error: err?.message || err });
+      }
+    },
+  });
+
+  // 17. Automation: Update Project Git URL
+  const updateProjectGitUrlTool = new DynamicStructuredTool({
+    name: 'update_project_git_url',
+    description: 'AUTOMATION ACTION: Update the Git Repository URL for a deployed project.',
+    schema: z.object({
+      projectNameOrId: z.string().describe('Project name or deployment ID'),
+      newGitUrl: z.string().describe('The new Git repository URL'),
+    }),
+    func: async ({ projectNameOrId, newGitUrl }: { projectNameOrId: string; newGitUrl: string }) => {
+      sendSSE(res, 'tool_start', {
+        toolName: 'update_project_git_url',
+        stepTitle: TOOL_LOADER_MAP.update_project_git_url,
+        status: 'running',
+      });
+
+      try {
+        const cleanProj = projectNameOrId.trim();
+        const project = await Deployment.findOne({
+          $and: [
+            { $or: [{ organizationId }, { userId: organizationId }] },
+            {
+              $or: [
+                { projectName: { $regex: `^${cleanProj}$`, $options: 'i' } },
+                { deploymentId: cleanProj }
+              ]
+            }
+          ]
+        });
+
+        if (!project) {
+          sendSSE(res, 'tool_end', {
+            toolName: 'update_project_git_url',
+            stepTitle: TOOL_LOADER_MAP.update_project_git_url,
+            status: 'completed',
+            resultSummary: `Project not found: ${cleanProj}`,
+          });
+          return JSON.stringify({ success: false, message: `Project '${cleanProj}' was not found.` });
+        }
+
+        const accessCheck = await verifyToolAccess(project);
+        if (!accessCheck.hasAccess) {
+          sendSSE(res, 'tool_end', {
+            toolName: 'update_project_git_url',
+            stepTitle: TOOL_LOADER_MAP.update_project_git_url,
+            status: 'completed',
+            resultSummary: 'Permission Denied',
+          });
+          return JSON.stringify({ success: false, message: accessCheck.reason });
+        }
+
+        if (project.status?.toUpperCase() === 'BUILDING') {
+          sendSSE(res, 'tool_end', {
+            toolName: 'update_project_git_url',
+            stepTitle: TOOL_LOADER_MAP.update_project_git_url,
+            status: 'completed',
+            resultSummary: 'Project is building',
+          });
+          return JSON.stringify({ success: false, message: `Cannot update Git URL while project '${project.projectName}' is actively BUILDING.` });
+        }
+
+        project.gitUrl = newGitUrl;
+        await project.save();
+
+        const result = {
+          success: true,
+          message: `Successfully updated Git repository URL for project "${project.projectName}" to ${newGitUrl}.`,
+          projectName: project.projectName,
+          newGitUrl,
+        };
+
+        sendSSE(res, 'tool_end', {
+          toolName: 'update_project_git_url',
+          stepTitle: TOOL_LOADER_MAP.update_project_git_url,
+          status: 'completed',
+          resultSummary: `Updated Git URL for ${project.projectName}`,
+        });
+
+        return JSON.stringify(result);
+      } catch (err: any) {
+        sendSSE(res, 'tool_end', {
+          toolName: 'update_project_git_url',
+          stepTitle: TOOL_LOADER_MAP.update_project_git_url,
+          status: 'error',
+        });
+        return JSON.stringify({ success: false, error: err?.message || err });
+      }
+    },
+  });
+
   return [
     getOrganizationOverviewTool,
     getOrganizationEmployeesTool,
@@ -1389,6 +1707,9 @@ export const createLangChainTools = (
     updateProjectAccessLevelTool,
     updateEmployeeOrgAccessTool,
     restartProjectContainerTool,
+    startProjectContainerTool,
+    stopProjectContainerTool,
+    updateProjectGitUrlTool,
   ];
 };
 
@@ -1617,6 +1938,49 @@ export const processAIQuery = async (
         sendSSE(res, 'thinking', { stepTitle: 'Applying project access permissions...' });
         await completeAIResponse(`✅ **Project Access Updated**\n\n${parsed.message || `Successfully granted \`${accessLevel.toUpperCase()}\` access on project **${targetProject}**.`}`);
         return;
+      }
+    }
+
+    // 1b. MUTATIVE AUTOMATION ACTIONS: Start / Stop / Update Git
+    const isStartAction = lowerQuery.includes('start project') || lowerQuery.includes('start container') || (lowerQuery.includes('start') && selectedProjects.length > 0);
+    const isStopAction = lowerQuery.includes('stop project') || lowerQuery.includes('stop container') || (lowerQuery.includes('stop') && selectedProjects.length > 0);
+    const isGitUpdateAction = lowerQuery.includes('update git') || lowerQuery.includes('change git') || lowerQuery.includes('set git') || lowerQuery.includes('update repo');
+
+    if (isStartAction || isStopAction || isGitUpdateAction) {
+      const { project } = parseContextEntities(query);
+      let targetProject = project || selectedProjects[0] || '';
+
+      if (targetProject) {
+        if (isStartAction) {
+          const tool = tools.find(t => t.name === 'start_project_container')!;
+          const resultStr = await tool.invoke({ projectNameOrId: targetProject });
+          const parsed = JSON.parse(resultStr);
+          sendSSE(res, 'thinking', { stepTitle: 'Starting project container...' });
+          await completeAIResponse(parsed.success ? `✅ **Success:** ${parsed.message}` : `❌ **Error:** ${parsed.message || parsed.error}`);
+          return;
+        }
+        if (isStopAction) {
+          const tool = tools.find(t => t.name === 'stop_project_container')!;
+          const resultStr = await tool.invoke({ projectNameOrId: targetProject });
+          const parsed = JSON.parse(resultStr);
+          sendSSE(res, 'thinking', { stepTitle: 'Stopping project container...' });
+          await completeAIResponse(parsed.success ? `✅ **Success:** ${parsed.message}` : `❌ **Error:** ${parsed.message || parsed.error}`);
+          return;
+        }
+        if (isGitUpdateAction) {
+          const urlMatch = query.match(/https?:\/\/[^\s]+/);
+          const newGitUrl = urlMatch ? urlMatch[0] : '';
+          if (!newGitUrl) {
+            await completeAIResponse(`Please provide the new Git repository URL you want to set for project "**${targetProject}**".`);
+            return;
+          }
+          const tool = tools.find(t => t.name === 'update_project_git_url')!;
+          const resultStr = await tool.invoke({ projectNameOrId: targetProject, newGitUrl });
+          const parsed = JSON.parse(resultStr);
+          sendSSE(res, 'thinking', { stepTitle: 'Updating project Git URL...' });
+          await completeAIResponse(parsed.success ? `✅ **Success:** ${parsed.message}` : `❌ **Error:** ${parsed.message || parsed.error}`);
+          return;
+        }
       }
     }
 
@@ -2002,6 +2366,9 @@ export const processAIQuery = async (
           '     3. DO NOT just return the projects table (`get_user_deployments`) when the user asks to change or grant access! You MUST execute the mutative tool `update_project_access_level`.\n' +
           '   - When the user asks to change an employee\'s organization-wide default access (e.g. "make anshZIG full access in organization"), invoke `update_employee_org_access`.\n' +
           '   - When the user asks to restart a project container (e.g. "restart container for project demo", "restart this project"), invoke `restart_project_container`.\n' +
+          '   - When the user asks to start a project container, invoke `start_project_container`.\n' +
+          '   - When the user asks to stop a project container, invoke `stop_project_container`.\n' +
+          '   - When the user asks to update or change the git repository URL of a project, invoke `update_project_git_url`.\n' +
           '   - Always report the outcome clearly confirming what changes were made.\n' +
           '6. OFF-TOPIC REFUSAL: If the user asks about unrelated topics (e.g. cooking recipes, creative storytelling, general trivia, medical/legal advice, unrelated non-DevOps topics), politely decline with this friendly response:\n' +
           '   "I am specialized in DeployHub cloud infrastructure, deployments, Docker telemetry, and organization management. How can I help with your projects or team today?"\n' +
