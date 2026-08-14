@@ -20,7 +20,10 @@ const sendSSE = (res, event, data) => {
  */
 const TOOL_LOADER_MAP = {
     get_organization_employees: 'Getting organization employees...',
-    get_user_deployments: 'Getting deployments...',
+    get_employee_details: 'Fetching employee profile & access...',
+    get_user_deployments: 'Getting organization deployments...',
+    get_project_details: 'Inspecting project configuration...',
+    get_deployment_logs: 'Retrieving deployment logs...',
     get_container_health: 'Checking Docker container health...',
     search_vector_knowledge: 'Searching Qdrant vector database...',
 };
@@ -28,42 +31,59 @@ const TOOL_LOADER_MAP = {
  * Build dynamic LangChain tools for a given user & organization context
  */
 const createLangChainTools = (userId, organizationId, res) => {
+    // 1. Get Organization Employees (Strictly Tenant Scoped)
     const getOrganizationEmployeesTool = new tools_1.DynamicStructuredTool({
         name: 'get_organization_employees',
-        description: 'Fetch list and total count of employees belonging to the organization, including their usernames, emails, and roles.',
+        description: 'Fetch the complete list and total count of members/employees in this organization (owner + employees).',
         schema: zod_1.z.object({
-            queryPurpose: zod_1.z.string().optional().describe('Brief reason for fetching employees'),
+            roleFilter: zod_1.z.string().optional().describe('Optional role filter (e.g. Developer, QA, Member)'),
         }),
-        func: async () => {
+        func: async ({ roleFilter }) => {
             sendSSE(res, 'tool_start', {
                 toolName: 'get_organization_employees',
                 stepTitle: TOOL_LOADER_MAP.get_organization_employees,
                 status: 'running',
             });
             try {
-                const employees = await shared_1.User.find({
-                    $or: [
-                        { organizationId },
-                        { _id: organizationId },
-                        { accountType: 'employee' }
-                    ]
-                }).select('username email accountType role createdAt');
+                const [orgOwner, employees] = await Promise.all([
+                    shared_1.User.findById(organizationId).select('username email accountType role createdAt'),
+                    shared_1.User.find({
+                        organizationId: organizationId,
+                        accountType: 'employee',
+                    }).select('username email accountType role createdAt'),
+                ]);
+                const allMembers = [];
+                if (orgOwner) {
+                    allMembers.push({
+                        id: orgOwner._id,
+                        username: orgOwner.username,
+                        email: orgOwner.email,
+                        accountType: orgOwner.accountType,
+                        role: 'Organization Owner',
+                        joinedAt: orgOwner.createdAt,
+                    });
+                }
+                for (const emp of employees) {
+                    if (!roleFilter || emp.role?.toLowerCase().includes(roleFilter.toLowerCase())) {
+                        allMembers.push({
+                            id: emp._id,
+                            username: emp.username,
+                            email: emp.email,
+                            accountType: emp.accountType,
+                            role: emp.role || 'Member',
+                            joinedAt: emp.createdAt,
+                        });
+                    }
+                }
                 const result = {
-                    totalEmployees: employees.length,
-                    employees: employees.map(e => ({
-                        id: e._id,
-                        username: e.username,
-                        email: e.email,
-                        accountType: e.accountType,
-                        role: e.role || 'Member',
-                        joinedAt: e.createdAt,
-                    }))
+                    totalEmployees: allMembers.length,
+                    employees: allMembers,
                 };
                 sendSSE(res, 'tool_end', {
                     toolName: 'get_organization_employees',
                     stepTitle: TOOL_LOADER_MAP.get_organization_employees,
                     status: 'completed',
-                    resultSummary: `Found ${employees.length} employees`,
+                    resultSummary: `Found ${allMembers.length} members`,
                 });
                 return JSON.stringify(result);
             }
@@ -77,25 +97,104 @@ const createLangChainTools = (userId, organizationId, res) => {
             }
         },
     });
+    // 2. Get Employee Details & Project Access
+    const getEmployeeDetailsTool = new tools_1.DynamicStructuredTool({
+        name: 'get_employee_details',
+        description: 'Lookup an individual employee by username or email and see their profile, role, and assigned project access levels.',
+        schema: zod_1.z.object({
+            identifier: zod_1.z.string().describe('Username or email of the employee to look up'),
+        }),
+        func: async ({ identifier }) => {
+            sendSSE(res, 'tool_start', {
+                toolName: 'get_employee_details',
+                stepTitle: TOOL_LOADER_MAP.get_employee_details,
+                status: 'running',
+            });
+            try {
+                const regex = new RegExp(`^${identifier.trim()}$`, 'i');
+                const user = await shared_1.User.findOne({
+                    $and: [
+                        { $or: [{ organizationId: organizationId }, { _id: organizationId }] },
+                        { $or: [{ username: regex }, { email: regex }] }
+                    ]
+                }).select('username email accountType role accessLevel createdAt');
+                if (!user) {
+                    sendSSE(res, 'tool_end', {
+                        toolName: 'get_employee_details',
+                        stepTitle: TOOL_LOADER_MAP.get_employee_details,
+                        status: 'completed',
+                        resultSummary: `Employee not found: ${identifier}`,
+                    });
+                    return JSON.stringify({ found: false, message: `No employee matching '${identifier}' in this organization.` });
+                }
+                // Check project access for this employee
+                const isOwner = user.accountType === 'organization';
+                const projects = await shared_1.Deployment.find({
+                    $or: [{ organizationId }, { userId: organizationId }]
+                }).select('projectName status accessControl');
+                const projectAccess = projects.map(p => {
+                    if (isOwner) {
+                        return { projectName: p.projectName, status: p.status, accessLevel: 'full (owner)' };
+                    }
+                    const userAccess = p.accessControl?.find((ac) => ac.employeeId?.toString() === user._id.toString());
+                    return {
+                        projectName: p.projectName,
+                        status: p.status,
+                        accessLevel: userAccess ? userAccess.accessLevel : 'none',
+                    };
+                });
+                const result = {
+                    found: true,
+                    employee: {
+                        id: user._id,
+                        username: user.username,
+                        email: user.email,
+                        accountType: user.accountType,
+                        role: user.role || 'Member',
+                        defaultAccess: user.accessLevel,
+                        joinedAt: user.createdAt,
+                    },
+                    projectAccess,
+                };
+                sendSSE(res, 'tool_end', {
+                    toolName: 'get_employee_details',
+                    stepTitle: TOOL_LOADER_MAP.get_employee_details,
+                    status: 'completed',
+                    resultSummary: `Found details for ${user.username}`,
+                });
+                return JSON.stringify(result);
+            }
+            catch (err) {
+                sendSSE(res, 'tool_end', {
+                    toolName: 'get_employee_details',
+                    stepTitle: TOOL_LOADER_MAP.get_employee_details,
+                    status: 'error',
+                });
+                return JSON.stringify({ error: err?.message || err });
+            }
+        },
+    });
+    // 3. Get User / Organization Deployments
     const getUserDeploymentsTool = new tools_1.DynamicStructuredTool({
         name: 'get_user_deployments',
-        description: 'Fetch total deployments, project status (running/building/stopped), public URLs, ports, and environment details for this organization.',
+        description: 'Fetch total deployments, project status (running/building/stopped/failed), public URLs, and ports for this organization.',
         schema: zod_1.z.object({
-            searchFilter: zod_1.z.string().optional().describe('Optional filter for project name or status'),
+            statusFilter: zod_1.z.enum(['running', 'building', 'stopped', 'failed', 'all']).optional().describe('Filter by deployment status'),
+            searchFilter: zod_1.z.string().optional().describe('Filter by project name'),
         }),
-        func: async ({ searchFilter }) => {
+        func: async ({ statusFilter, searchFilter }) => {
             sendSSE(res, 'tool_start', {
                 toolName: 'get_user_deployments',
                 stepTitle: TOOL_LOADER_MAP.get_user_deployments,
                 status: 'running',
             });
             try {
-                let query = {
-                    $or: [
-                        { organizationId },
-                        { userId }
-                    ]
+                const query = {
+                    $or: [{ organizationId }, { userId: organizationId }]
                 };
+                if (statusFilter && statusFilter !== 'all') {
+                    query.status = statusFilter;
+                }
                 if (searchFilter) {
                     query.projectName = { $regex: searchFilter, $options: 'i' };
                 }
@@ -131,13 +230,170 @@ const createLangChainTools = (userId, organizationId, res) => {
             }
         },
     });
+    // 4. Get Specific Project Details
+    const getProjectDetailsTool = new tools_1.DynamicStructuredTool({
+        name: 'get_project_details',
+        description: 'Get deep details about a specific project: git repository, branch, port, public URL, status, and which employees have access.',
+        schema: zod_1.z.object({
+            projectNameOrId: zod_1.z.string().describe('Project name or deployment ID to inspect'),
+        }),
+        func: async ({ projectNameOrId }) => {
+            sendSSE(res, 'tool_start', {
+                toolName: 'get_project_details',
+                stepTitle: TOOL_LOADER_MAP.get_project_details,
+                status: 'running',
+            });
+            try {
+                const deployment = await shared_1.Deployment.findOne({
+                    $and: [
+                        { $or: [{ organizationId }, { userId: organizationId }] },
+                        {
+                            $or: [
+                                { projectName: { $regex: `^${projectNameOrId.trim()}$`, $options: 'i' } },
+                                { deploymentId: projectNameOrId.trim() }
+                            ]
+                        }
+                    ]
+                });
+                if (!deployment) {
+                    sendSSE(res, 'tool_end', {
+                        toolName: 'get_project_details',
+                        stepTitle: TOOL_LOADER_MAP.get_project_details,
+                        status: 'completed',
+                        resultSummary: `Project not found: ${projectNameOrId}`,
+                    });
+                    return JSON.stringify({ found: false, message: `Project '${projectNameOrId}' not found.` });
+                }
+                // Populate employee names in accessControl
+                const employeeIds = deployment.accessControl?.map((ac) => ac.employeeId) || [];
+                const employees = await shared_1.User.find({ _id: { $in: employeeIds } }).select('username email role');
+                const permissions = deployment.accessControl?.map((ac) => {
+                    const emp = employees.find(e => e._id.toString() === ac.employeeId?.toString());
+                    return {
+                        employeeId: ac.employeeId,
+                        username: emp ? emp.username : 'Unknown',
+                        email: emp ? emp.email : 'Unknown',
+                        accessLevel: ac.accessLevel,
+                    };
+                }) || [];
+                const result = {
+                    found: true,
+                    project: {
+                        deploymentId: deployment.deploymentId,
+                        projectName: deployment.projectName,
+                        status: deployment.status,
+                        containerId: deployment.containerId || 'N/A',
+                        port: deployment.port,
+                        publicUrl: deployment.publicUrl,
+                        gitUrl: deployment.gitUrl,
+                        branch: deployment.branch,
+                        createdAt: deployment.createdAt,
+                        assignedEmployees: permissions,
+                    }
+                };
+                sendSSE(res, 'tool_end', {
+                    toolName: 'get_project_details',
+                    stepTitle: TOOL_LOADER_MAP.get_project_details,
+                    status: 'completed',
+                    resultSummary: `Inspected project ${deployment.projectName}`,
+                });
+                return JSON.stringify(result);
+            }
+            catch (err) {
+                sendSSE(res, 'tool_end', {
+                    toolName: 'get_project_details',
+                    stepTitle: TOOL_LOADER_MAP.get_project_details,
+                    status: 'error',
+                });
+                return JSON.stringify({ error: err?.message || err });
+            }
+        },
+    });
+    // 5. Get Deployment Logs
+    const getDeploymentLogsTool = new tools_1.DynamicStructuredTool({
+        name: 'get_deployment_logs',
+        description: 'Retrieve recent build or runtime container logs for a project to troubleshoot build failures, crashes, or status.',
+        schema: zod_1.z.object({
+            projectNameOrId: zod_1.z.string().describe('Project name or deployment ID to get logs for'),
+        }),
+        func: async ({ projectNameOrId }) => {
+            sendSSE(res, 'tool_start', {
+                toolName: 'get_deployment_logs',
+                stepTitle: TOOL_LOADER_MAP.get_deployment_logs,
+                status: 'running',
+            });
+            try {
+                const deployment = await shared_1.Deployment.findOne({
+                    $and: [
+                        { $or: [{ organizationId }, { userId: organizationId }] },
+                        {
+                            $or: [
+                                { projectName: { $regex: `^${projectNameOrId.trim()}$`, $options: 'i' } },
+                                { deploymentId: projectNameOrId.trim() }
+                            ]
+                        }
+                    ]
+                });
+                if (!deployment) {
+                    sendSSE(res, 'tool_end', {
+                        toolName: 'get_deployment_logs',
+                        stepTitle: TOOL_LOADER_MAP.get_deployment_logs,
+                        status: 'completed',
+                        resultSummary: `Project not found: ${projectNameOrId}`,
+                    });
+                    return JSON.stringify({ found: false, message: `Project '${projectNameOrId}' not found.` });
+                }
+                let containerLogs = '';
+                if (deployment.containerId) {
+                    try {
+                        const container = docker.getContainer(deployment.containerId);
+                        const rawLogs = await container.logs({
+                            stdout: true,
+                            stderr: true,
+                            tail: 50,
+                            timestamps: true,
+                        });
+                        containerLogs = rawLogs.toString('utf-8');
+                    }
+                    catch (e) {
+                        containerLogs = `Could not fetch live container logs: ${e?.message || e}`;
+                    }
+                }
+                else {
+                    containerLogs = `No active Docker container registered. Project status is '${deployment.status}'.`;
+                }
+                const result = {
+                    projectName: deployment.projectName,
+                    status: deployment.status,
+                    port: deployment.port,
+                    logs: containerLogs.slice(-2500),
+                };
+                sendSSE(res, 'tool_end', {
+                    toolName: 'get_deployment_logs',
+                    stepTitle: TOOL_LOADER_MAP.get_deployment_logs,
+                    status: 'completed',
+                    resultSummary: `Retrieved logs for ${deployment.projectName}`,
+                });
+                return JSON.stringify(result);
+            }
+            catch (err) {
+                sendSSE(res, 'tool_end', {
+                    toolName: 'get_deployment_logs',
+                    stepTitle: TOOL_LOADER_MAP.get_deployment_logs,
+                    status: 'error',
+                });
+                return JSON.stringify({ error: err?.message || err });
+            }
+        },
+    });
+    // 6. Get Docker Container Health
     const getContainerHealthTool = new tools_1.DynamicStructuredTool({
         name: 'get_container_health',
-        description: 'Inspect live Docker containers on the host machine to check running state, container IDs, ports, and resource health.',
+        description: 'Inspect live Docker containers on the host machine to check running state, container IDs, ports, and health.',
         schema: zod_1.z.object({
-            projectName: zod_1.z.string().optional().describe('Optional specific project container name'),
+            containerName: zod_1.z.string().optional().describe('Optional container name filter'),
         }),
-        func: async ({ projectName }) => {
+        func: async ({ containerName }) => {
             sendSSE(res, 'tool_start', {
                 toolName: 'get_container_health',
                 stepTitle: TOOL_LOADER_MAP.get_container_health,
@@ -146,9 +402,9 @@ const createLangChainTools = (userId, organizationId, res) => {
             try {
                 const containers = await docker.listContainers({ all: true });
                 const filtered = containers.filter(c => {
-                    if (!projectName)
+                    if (!containerName)
                         return true;
-                    return c.Names.some(name => name.includes(projectName));
+                    return c.Names.some(name => name.toLowerCase().includes(containerName.toLowerCase()));
                 });
                 const result = {
                     totalContainers: filtered.length,
@@ -179,6 +435,7 @@ const createLangChainTools = (userId, organizationId, res) => {
             }
         },
     });
+    // 7. Search Vector Knowledge (Qdrant RAG)
     const searchVectorKnowledgeTool = new tools_1.DynamicStructuredTool({
         name: 'search_vector_knowledge',
         description: 'Perform RAG vector search in Qdrant database to retrieve relevant build log chunks, system docs, and project deployment histories.',
@@ -213,7 +470,10 @@ const createLangChainTools = (userId, organizationId, res) => {
     });
     return [
         getOrganizationEmployeesTool,
+        getEmployeeDetailsTool,
         getUserDeploymentsTool,
+        getProjectDetailsTool,
+        getDeploymentLogsTool,
         getContainerHealthTool,
         searchVectorKnowledgeTool,
     ];
@@ -229,6 +489,59 @@ const processAIQuery = async (query, userId, organizationId, res) => {
     if (!apiKey) {
         shared_1.Logger.warn('AI', 'GROQ_API_KEY missing. Executing intelligent local tool matching agent...');
         const lowerQuery = query.toLowerCase();
+        // Specific employee lookup in fallback mode
+        if (lowerQuery.includes('who is') || lowerQuery.includes('detail of') || lowerQuery.includes('details of') || lowerQuery.includes('access of')) {
+            const words = query.split(/\s+/);
+            const identifier = words[words.length - 1]?.replace(/[^a-zA-Z0-9@._-]/g, '') || '';
+            const empDetailsTool = tools.find(t => t.name === 'get_employee_details');
+            const empDetailsStr = await empDetailsTool.invoke({ identifier });
+            const empDetails = JSON.parse(empDetailsStr);
+            sendSSE(res, 'thinking', { stepTitle: 'Finalizing employee profile...' });
+            if (empDetails.found) {
+                let reply = `Employee Profile:\n` +
+                    `• Username: ${empDetails.employee.username}\n` +
+                    `• Email: ${empDetails.employee.email}\n` +
+                    `• Role: ${empDetails.employee.role}\n` +
+                    `• Account Type: ${empDetails.employee.accountType}\n\n` +
+                    `Project Permissions:\n`;
+                reply += empDetails.projectAccess.map((p) => `• ${p.projectName} (Status: ${p.status}) - Access: ${p.accessLevel}`).join('\n');
+                sendSSE(res, 'token', reply);
+            }
+            else {
+                sendSSE(res, 'token', empDetails.message || `No employee found matching "${identifier}".`);
+            }
+            sendSSE(res, 'done', { success: true });
+            return;
+        }
+        // Specific project lookup in fallback mode
+        if (lowerQuery.includes('project detail') || lowerQuery.includes('about project') || lowerQuery.includes('inspect project')) {
+            const words = query.split(/\s+/);
+            const projName = words[words.length - 1]?.replace(/[^a-zA-Z0-9_-]/g, '') || '';
+            const projTool = tools.find(t => t.name === 'get_project_details');
+            const projData = JSON.parse(await projTool.invoke({ projectNameOrId: projName }));
+            sendSSE(res, 'thinking', { stepTitle: 'Finalizing project overview...' });
+            if (projData.found) {
+                const p = projData.project;
+                let reply = `Project Details: ${p.projectName}\n` +
+                    `• Status: ${p.status}\n` +
+                    `• Port: ${p.port || 'N/A'}\n` +
+                    `• Public URL: ${p.publicUrl || 'N/A'}\n` +
+                    `• Git Repository: ${p.gitUrl || 'N/A'} (Branch: ${p.branch || 'main'})\n\n` +
+                    `Assigned Employee Access:\n`;
+                if (p.assignedEmployees.length > 0) {
+                    reply += p.assignedEmployees.map((e) => `• ${e.username} (${e.email}) - Access: ${e.accessLevel}`).join('\n');
+                }
+                else {
+                    reply += `• No custom employee access restrictions assigned (Organization owner full access).`;
+                }
+                sendSSE(res, 'token', reply);
+            }
+            else {
+                sendSSE(res, 'token', projData.message || `Project "${projName}" not found.`);
+            }
+            sendSSE(res, 'done', { success: true });
+            return;
+        }
         // Check for combined multi-tool queries in fallback mode
         const hasEmployeeQuery = lowerQuery.includes('employee') || lowerQuery.includes('user') || lowerQuery.includes('team') || lowerQuery.includes('people') || lowerQuery.includes('organization');
         const hasDeployQuery = lowerQuery.includes('deploy') || lowerQuery.includes('project') || lowerQuery.includes('app');
@@ -239,9 +552,9 @@ const processAIQuery = async (query, userId, organizationId, res) => {
             const empData = JSON.parse(await empTool.invoke({}));
             const depData = JSON.parse(await depTool.invoke({}));
             sendSSE(res, 'thinking', { stepTitle: 'Finalizing combined report...' });
-            let reply = `Organization Summary (${empData.totalEmployees} Employees, ${depData.totalDeployments} Projects):\n\n`;
+            let reply = `Organization Summary (${empData.totalEmployees} Members, ${depData.totalDeployments} Projects):\n\n`;
             reply += `Employees:\n` + empData.employees.map((e, i) => `${i + 1}. ${e.username} (${e.email}) - ${e.role || 'Member'}`).join('\n');
-            reply += `\n\nProjects & Deployments:\n` + depData.deployments.map((d, i) => `${i + 1}. ${d.projectName} (Status: ${d.status}, Port: ${d.port || 'N/A'})`).join('\n');
+            reply += `\n\nProjects & Deployments:\n` + depData.deployments.map((d, i) => `${i + 1}. ${d.projectName} (Status: ${d.status}, Port: ${d.port || 'N/A'}${d.publicUrl ? `, URL: ${d.publicUrl}` : ''})`).join('\n');
             sendSSE(res, 'token', reply);
             sendSSE(res, 'done', { success: true });
             return;
@@ -286,7 +599,7 @@ const processAIQuery = async (query, userId, organizationId, res) => {
             reply += chunks.map((c) => `• ${c.title}:\n  ${c.content}\n`).join('\n');
         }
         else {
-            reply += `No specific build logs or project knowledge chunks matched "${query}". You can ask about total employees, deployments, or container status!`;
+            reply += `No specific build logs or project knowledge chunks matched "${query}". You can ask about organization employees, project details, or container health!`;
         }
         sendSSE(res, 'token', reply);
         sendSSE(res, 'done', { success: true });
@@ -301,8 +614,9 @@ const processAIQuery = async (query, userId, organizationId, res) => {
         }).bindTools(tools);
         const messages = [
             new messages_1.SystemMessage('You are DeployHub AI, a helpful cloud infrastructure and DevOps assistant. ' +
-                'Answer questions directly in clear, clean, natural human text. ' +
-                'When answering questions requiring multiple pieces of data (e.g. employees AND their deployments), invoke all necessary tools. ' +
+                'You have access to specialized tools for organization employees, individual employee details, deployments, project configurations, deployment logs, and container telemetry. ' +
+                'Always answer questions directly in clear, clean, natural human text. ' +
+                'When answering questions requiring multiple data points (e.g. employees and their assigned projects), call all appropriate tools sequentially. ' +
                 'Do not output raw Markdown table syntax or unparsed symbols. Use clean numbered or bulleted lists.'),
             new messages_1.HumanMessage(query),
         ];
