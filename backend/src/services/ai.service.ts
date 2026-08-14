@@ -2342,9 +2342,15 @@ export const processAIQuery = async (
 
   // Resolve target model for Groq API
   let targetModelName = 'llama-3.1-8b-instant';
-  if (selectedModel) {
-    // If the frontend explicitly sends a model name, honor it directly
-    // This allows new native models like 'openai/gpt-oss-20b' and 'groq/compound' to be used natively.
+  if (selectedModel === 'gpt-oss-20b' || selectedModel === 'openai/gpt-oss-20b') {
+    targetModelName = 'llama-3.3-70b-versatile';
+  } else if (selectedModel === 'groq/compound' || selectedModel === 'compound') {
+    targetModelName = 'llama-3.3-70b-versatile';
+  } else if (selectedModel === 'llama-3.3-70b-versatile') {
+    targetModelName = 'llama-3.3-70b-versatile';
+  } else if (selectedModel === 'llama-3.1-8b-instant') {
+    targetModelName = 'llama-3.1-8b-instant';
+  } else if (selectedModel) {
     targetModelName = selectedModel;
   }
 
