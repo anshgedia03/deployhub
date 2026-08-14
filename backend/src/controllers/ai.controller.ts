@@ -10,7 +10,7 @@ import {
 
 export const handleAIChat = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { prompt, sessionId, model } = req.body;
+    const { prompt, sessionId, model, selectedEntities } = req.body;
 
     if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
       throw new AppError('Prompt is required', 400);
@@ -35,7 +35,7 @@ export const handleAIChat = async (req: Request, res: Response, next: NextFuncti
     res.setHeader('X-Accel-Buffering', 'no'); // Disable Nginx buffering
     res.flushHeaders();
 
-    await processAIQuery(prompt.trim(), userId, organizationId, res, sessionId, model);
+    await processAIQuery(prompt.trim(), userId, organizationId, res, sessionId, model, selectedEntities);
     res.end();
   } catch (error) {
     next(error);

@@ -264,9 +264,14 @@ export function AIChat() {
     }
   };
 
-  // Trigger Rocket Launch Animation
+  // Trigger Rocket Launch Animation or Toggle Off Automation Mode
   const handleRocketLaunch = () => {
     if (isRocketLaunching) return;
+    if (isAutomationMode) {
+      setIsAutomationMode(false);
+      setSelectedEntities([]);
+      return;
+    }
     setIsRocketLaunching(true);
   };
 
@@ -334,6 +339,7 @@ export function AIChat() {
           prompt: finalPrompt,
           sessionId: currentSessionId,
           model: selectedModel,
+          selectedEntities,
         }),
       });
 
@@ -486,9 +492,6 @@ export function AIChat() {
           onAnimationComplete={() => {
             setIsRocketLaunching(false);
             setIsAutomationMode(true);
-            toast.success('⚡ Automation Mode Active! Click (+) for quick actions.', {
-              duration: 3500,
-            });
           }}
           onImpact={handleRocketImpact}
           containerRef={chatContainerRef}
@@ -746,57 +749,32 @@ export function AIChat() {
 
         {/* Input Bar */}
         <div className="p-4 border-t border-zinc-800 bg-[#0c0c0e]">
-          {/* Automation Mode Active Banner */}
-          {isAutomationMode && (
-            <div className="mb-2.5 max-w-3xl mx-auto flex items-center justify-between px-3.5 py-1.5 rounded-lg bg-cyan-950/40 border border-cyan-500/30 text-cyan-300 text-xs shadow-[0_0_15px_rgba(6,182,212,0.15)] animate-in fade-in slide-in-from-bottom-1">
-              <div className="flex items-center gap-2 min-w-0 truncate">
-                <Zap className="w-3.5 h-3.5 text-cyan-400 animate-pulse shrink-0" />
-                <span className="font-semibold text-[11px] sm:text-xs">⚡ Automation Mode Active</span>
-                <span className="hidden sm:inline text-zinc-400 text-[10px] truncate">— Click (+) to select projects & employees</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsAutomationMode(false);
-                  toast.info('Automation Mode deactivated');
-                }}
-                className="text-[11px] font-medium text-zinc-400 hover:text-zinc-200 underline cursor-pointer shrink-0 ml-2"
-              >
-                Exit Mode
-              </button>
-            </div>
-          )}
-
-          {/* Selected Entities Single Row Badge Bar directly on top of input text */}
+          {/* Selected Entities Context Row (Clean Minimal Tags) */}
           {selectedEntities.length > 0 && (
-            <div className="mb-2 max-w-3xl mx-auto flex items-center gap-2 overflow-x-auto flex-nowrap py-1 scrollbar-thin scrollbar-thumb-zinc-800 animate-in fade-in slide-in-from-bottom-1">
-              <span className="text-[10px] uppercase font-bold text-cyan-400/80 tracking-wider shrink-0 mr-1 flex items-center gap-1">
-                <Sparkles className="w-3 h-3 text-cyan-400" /> Context ({selectedEntities.length}):
+            <div className="mb-2 max-w-3xl mx-auto flex items-center gap-1.5 overflow-x-auto flex-nowrap py-0.5 scrollbar-thin scrollbar-thumb-zinc-800">
+              <span className="text-[11px] font-medium text-zinc-400 shrink-0 mr-1">
+                Context ({selectedEntities.length}):
               </span>
               {selectedEntities.map((entity) => (
                 <div
                   key={entity.id}
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border shrink-0 transition-all ${
-                    entity.type === "project"
-                      ? "bg-cyan-950/60 border-cyan-500/40 text-cyan-200 shadow-[0_0_8px_rgba(6,182,212,0.15)]"
-                      : "bg-blue-950/60 border-blue-500/40 text-blue-200 shadow-[0_0_8px_rgba(59,130,246,0.15)]"
-                  }`}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-zinc-900 border border-zinc-800 text-zinc-200 shrink-0"
                 >
                   {entity.type === "project" ? (
-                    <FolderGit2 className="w-3 h-3 text-cyan-400 shrink-0" />
+                    <FolderGit2 className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
                   ) : (
-                    <User className="w-3 h-3 text-blue-400 shrink-0" />
+                    <User className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
                   )}
-                  <span className="truncate max-w-[140px] font-semibold">{entity.title}</span>
+                  <span className="truncate max-w-[140px]">{entity.title}</span>
                   {entity.badge && (
-                    <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-black/40 text-zinc-300 font-mono">
+                    <span className="text-[10px] px-1.5 py-0.2 rounded bg-zinc-800 text-zinc-400 font-mono">
                       {entity.badge}
                     </span>
                   )}
                   <button
                     type="button"
                     onClick={() => setSelectedEntities((prev) => prev.filter((e) => e.id !== entity.id))}
-                    className="ml-0.5 text-zinc-400 hover:text-white transition-colors cursor-pointer"
+                    className="ml-0.5 text-zinc-500 hover:text-zinc-300 transition-colors cursor-pointer"
                     title="Remove"
                   >
                     <X className="w-3 h-3" />
@@ -806,7 +784,7 @@ export function AIChat() {
               <button
                 type="button"
                 onClick={() => setSelectedEntities([])}
-                className="text-[11px] text-zinc-500 hover:text-zinc-300 underline whitespace-nowrap shrink-0 px-1 cursor-pointer"
+                className="text-xs text-zinc-500 hover:text-zinc-300 underline whitespace-nowrap shrink-0 px-1 cursor-pointer ml-1"
               >
                 Clear all
               </button>
@@ -820,36 +798,39 @@ export function AIChat() {
             }}
             className="relative flex items-center max-w-3xl mx-auto w-full gap-2.5"
           >
-            {/* Rocket Action Button */}
+            {/* Rocket Action Button (Click to activate/deactivate automation mode) */}
             <button
               type="button"
               ref={rocketButtonRef}
               onClick={handleRocketLaunch}
               disabled={isRocketLaunching}
-              aria-label="Launch DeployHub power-up"
-              className="relative grid h-11 w-11 place-items-center rounded-full bg-zinc-950/90 border border-sky-400/15 text-sky-400 shadow-[0_0_14px_rgba(56,189,248,0.16),inset_0_0_12px_rgba(14,165,233,0.06)] transition-all duration-300 group shrink-0 disabled:opacity-45 disabled:pointer-events-none active:scale-95 cursor-pointer hover:scale-105 hover:text-cyan-200 hover:border-cyan-400/55 hover:bg-zinc-900 hover:shadow-[0_0_24px_rgba(56,189,248,0.44),inset_0_0_16px_rgba(14,165,233,0.12)] animate-rocket-button-idle"
-              title="Launch DeployHub Power-Up"
+              aria-label={isAutomationMode ? "Exit Automation Mode" : "Enable Automation Mode"}
+              className={`relative grid h-10 w-10 place-items-center rounded-full border transition-all duration-150 group shrink-0 disabled:opacity-45 disabled:pointer-events-none active:scale-95 cursor-pointer ${
+                isAutomationMode
+                  ? 'bg-cyan-500/20 border-cyan-400/60 text-cyan-400 shadow-sm'
+                  : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700'
+              }`}
+              title={isAutomationMode ? "Click to exit automation mode" : "Enable automation mode"}
             >
-              <span className="absolute inset-[-3px] rounded-full border border-cyan-300/20 opacity-70 pointer-events-none animate-rocket-button-ring" />
-              <Rocket className="w-4 h-4 transition-transform duration-300 group-hover:-translate-y-0.5 group-hover:rotate-12 group-hover:scale-110" />
+              <Rocket className={`w-4 h-4 transition-transform duration-150 ${isAutomationMode ? 'text-cyan-300 -translate-y-0.5' : 'group-hover:-translate-y-0.5'}`} />
             </button>
 
-            {/* Input Wrapper with Dynamic Collision Shake */}
+            {/* Input Wrapper */}
             <div
               ref={inputWrapperRef}
               className={`relative flex-1 flex items-center transition-transform ${
                 isInputShaking ? 'animate-input-shake' : ''
               }`}
             >
-              {/* (+) Automation Context Modal Trigger Inside Input (Left Side) */}
+              {/* (+) Context Modal Trigger Inside Input (Left Side) */}
               {isAutomationMode && (
                 <button
                   type="button"
                   onClick={() => setIsContextModalOpen(true)}
-                  className="absolute left-2.5 top-1/2 -translate-y-1/2 z-20 flex h-7 w-7 items-center justify-center rounded-full bg-cyan-500/20 hover:bg-cyan-500/35 text-cyan-300 border border-cyan-400/50 shadow-[0_0_10px_rgba(6,182,212,0.3)] transition-all active:scale-95 cursor-pointer group"
-                  title="Open Project & Employee Context Selector"
+                  className="absolute left-2.5 top-1/2 -translate-y-1/2 z-20 flex h-6 w-6 items-center justify-center rounded-md bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 transition-all active:scale-95 cursor-pointer"
+                  title="Select context"
                 >
-                  <Plus className="w-3.5 h-3.5 transition-transform duration-200 group-hover:rotate-90 text-cyan-200" />
+                  <Plus className="w-3.5 h-3.5" />
                 </button>
               )}
 
@@ -860,8 +841,8 @@ export function AIChat() {
                 placeholder={
                   isAutomationMode
                     ? selectedEntities.length > 0
-                      ? `Automation: Instruct AI on ${selectedEntities.map(e => e.title).join(', ')}...`
-                      : "Automation Active: Click (+) to select projects & employees..."
+                      ? `Instruct AI on ${selectedEntities.map(e => e.title).join(', ')}...`
+                      : "Click (+) to select projects & employees..."
                     : activeSessionId
                     ? "Message DeployHub AI..."
                     : "Click '+ New Chat' or type here to start..."
@@ -869,13 +850,11 @@ export function AIChat() {
                 disabled={isLoading}
                 className={`w-full bg-zinc-900 border ${
                   isAutomationMode
-                    ? 'border-cyan-500/40 focus:border-cyan-400/80 shadow-[0_0_15px_rgba(6,182,212,0.12)]'
+                    ? 'border-cyan-500/40 focus:border-cyan-500/80'
                     : 'border-zinc-800 focus:border-zinc-700'
                 } rounded-full ${
-                  isAutomationMode ? 'pl-11 pr-14' : 'px-5 pr-14'
-                } py-3.5 text-xs sm:text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-1 ${
-                  isAutomationMode ? 'focus:ring-cyan-500/40' : 'focus:ring-zinc-700'
-                } transition-all disabled:opacity-50`}
+                  isAutomationMode ? 'pl-10 pr-12' : 'px-5 pr-12'
+                } py-3 text-xs sm:text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none transition-all disabled:opacity-50`}
               />
 
               <button

@@ -62,8 +62,14 @@ const TOOL_LOADER_MAP: Record<string, string> = {
 /**
  * Build dynamic LangChain tools for a given user & organization context
  */
-export const createLangChainTools = (userId: string, organizationId: string, res: Response, executedTools?: any[]) => {
-  // 1. Get Organization Employees (Strictly Tenant Scoped)
+export const createLangChainTools = (
+  userId: string,
+  organizationId: string,
+  res: Response,
+  executedTools?: any[],
+  scopedEntities?: { selectedProjects?: string[] | undefined; selectedEmployees?: string[] | undefined }
+) => {
+  // 1. Get Organization Employees (Strictly Tenant Scoped & RAG-Scoped if provided)
   const getOrganizationEmployeesTool = new DynamicStructuredTool({
     name: 'get_organization_employees',
     description: 'Fetch the complete list of members/employees in this organization along with their roles, access levels (full vs limited), and the exact projects they can access.',
@@ -79,12 +85,19 @@ export const createLangChainTools = (userId: string, organizationId: string, res
 
       try {
         const cleanRole = roleFilter?.trim() || undefined;
+        const empQuery: any = {
+          organizationId: organizationId,
+          accountType: 'employee',
+        };
+
+        // RAG token optimization: scope query strictly to selected employees if attached
+        if (scopedEntities?.selectedEmployees && scopedEntities.selectedEmployees.length > 0) {
+          empQuery.username = { $in: scopedEntities.selectedEmployees.map((e) => new RegExp(`^${e}$`, 'i')) };
+        }
+
         const [orgOwner, employees, deployments] = await Promise.all([
           User.findById(organizationId).select('username email accountType role accessLevel createdAt'),
-          User.find({
-            organizationId: organizationId,
-            accountType: 'employee',
-          }).select('username email accountType role accessLevel createdAt'),
+          User.find(empQuery).select('username email accountType role accessLevel createdAt'),
           Deployment.find({
             $or: [{ organizationId }, { userId: organizationId }]
           }).select('projectName status accessControl'),
@@ -292,6 +305,8 @@ export const createLangChainTools = (userId: string, organizationId: string, res
 
         if (searchFilter && searchFilter.trim()) {
           query.projectName = { $regex: searchFilter.trim(), $options: 'i' };
+        } else if (scopedEntities?.selectedProjects && scopedEntities.selectedProjects.length > 0) {
+          query.projectName = { $in: scopedEntities.selectedProjects.map((p) => new RegExp(`^${p}$`, 'i')) };
         }
 
         const deployments = await Deployment.find(query).sort({ createdAt: -1 });
@@ -1270,7 +1285,8 @@ export const processAIQuery = async (
   organizationId: string,
   res: Response,
   sessionId?: string,
-  selectedModel?: string
+  selectedModel?: string,
+  selectedEntities?: Array<{ id: string; type: 'project' | 'employee'; title: string; subtitle?: string; status?: string; badge?: string }>
 ): Promise<void> => {
   const apiKey = process.env.GROQ_API_KEY || (env as any).GROQ_API_KEY;
 
@@ -1278,7 +1294,107 @@ export const processAIQuery = async (
     await saveChatMessage(sessionId, 'user', query);
   }
 
-  const tools = createLangChainTools(userId, organizationId, res, (res as any).executedTools);
+  // 1. Extract Selected Entities for Focused RAG & Token Optimization
+  let selectedProjects: string[] = [];
+  let selectedEmployees: string[] = [];
+
+  if (Array.isArray(selectedEntities) && selectedEntities.length > 0) {
+    selectedEntities.forEach((e) => {
+      if (e.type === 'project' && e.title) selectedProjects.push(e.title.trim());
+      if (e.type === 'employee' && e.title) selectedEmployees.push(e.title.trim());
+    });
+  } else {
+    // Regex parsing fallback from query string
+    const pMatches = Array.from(query.matchAll(/PROJECT:\s*([a-zA-Z0-9_-]+)/gi));
+    pMatches.forEach((m) => {
+      if (m[1]) selectedProjects.push(m[1].trim());
+    });
+    const eMatches = Array.from(query.matchAll(/EMPLOYEE:\s*([a-zA-Z0-9@._-]+)/gi));
+    eMatches.forEach((m) => {
+      if (m[1]) selectedEmployees.push(m[1].trim());
+    });
+  }
+
+  selectedProjects = Array.from(new Set(selectedProjects));
+  selectedEmployees = Array.from(new Set(selectedEmployees));
+
+  const scopedEntities = {
+    selectedProjects: selectedProjects.length > 0 ? selectedProjects : undefined,
+    selectedEmployees: selectedEmployees.length > 0 ? selectedEmployees : undefined,
+  };
+
+  const tools = createLangChainTools(userId, organizationId, res, (res as any).executedTools, scopedEntities);
+
+  // 2. Targeted RAG Retrieval for Selected Modal Items (Token Conservation)
+  let targetedRagBlock = '';
+
+  if (selectedProjects.length > 0 || selectedEmployees.length > 0) {
+    sendSSE(res, 'tool_start', {
+      toolName: 'search_vector_knowledge',
+      stepTitle: 'Retrieving targeted RAG context for selected items...',
+      status: 'running',
+    });
+
+    const ragSnippets: string[] = [];
+
+    // Project Targeted RAG
+    for (const projName of selectedProjects) {
+      const proj: any = await Deployment.findOne({
+        $and: [
+          { $or: [{ organizationId }, { userId: organizationId }] },
+          { projectName: { $regex: `^${projName}$`, $options: 'i' } },
+        ],
+      }).lean();
+
+      if (proj) {
+        let vectorSummary = '';
+        try {
+          const vectorChunks = await searchVectorKnowledge(proj.projectName, organizationId, 2);
+          vectorSummary = vectorChunks.map((c) => c.content).join(' ').slice(0, 300);
+        } catch (e) {}
+
+        ragSnippets.push(
+          `[TARGETED RAG: PROJECT "${proj.projectName}"]\n` +
+          `• Status: ${proj.status?.toUpperCase() || 'UNKNOWN'} | Port: ${proj.port || 'N/A'} | Branch: ${proj.branch || 'main'}\n` +
+          `• Public URL: ${proj.publicUrl || 'N/A'}\n` +
+          `• Access Permissions: ${proj.accessControl?.length ? JSON.stringify(proj.accessControl) : 'Org-wide default'}\n` +
+          (vectorSummary ? `• Vector Knowledge: ${vectorSummary}\n` : '')
+        );
+      }
+    }
+
+    // Employee Targeted RAG
+    for (const empName of selectedEmployees) {
+      const emp: any = await User.findOne({
+        $and: [
+          { organizationId },
+          { $or: [{ username: { $regex: `^${empName}$`, $options: 'i' } }, { email: { $regex: `^${empName}$`, $options: 'i' } }] },
+        ],
+      }).select('username email role accessLevel createdAt').lean();
+
+      if (emp) {
+        ragSnippets.push(
+          `[TARGETED RAG: EMPLOYEE "${emp.username}"]\n` +
+          `• Email: ${emp.email} | Role: ${emp.role || 'Member'} | Default Org Access: ${emp.accessLevel || 'limited'}\n`
+        );
+      }
+    }
+
+    sendSSE(res, 'tool_end', {
+      toolName: 'search_vector_knowledge',
+      stepTitle: 'Targeted RAG context retrieved',
+      status: 'completed',
+      resultSummary: `Scoped RAG context to ${selectedProjects.length} project(s), ${selectedEmployees.length} employee(s)`,
+    });
+
+    if (ragSnippets.length > 0) {
+      targetedRagBlock =
+        `\n\n=== STRICT TARGETED RAG CONTEXT (SAVING TOKENS - SCOPED TO SELECTED ITEMS ONLY) ===\n` +
+        ragSnippets.join('\n') +
+        `\nTOKEN OPTIMIZATION RULE: Focus strictly on the entities above. Do not query unselected entities.\n` +
+        `=======================================================================================\n`;
+    }
+  }
 
   const lowerQuery = query.toLowerCase().trim();
 
@@ -1306,8 +1422,66 @@ export const processAIQuery = async (
     return;
   }
 
+  // Context parsing helper for attached selections
+  const parseContextEntities = (rawQuery: string) => {
+    let project = '';
+    let employee = '';
+
+    const pMatch = rawQuery.match(/PROJECT:\s*([a-zA-Z0-9_-]+)/i);
+    if (pMatch && pMatch[1]) project = pMatch[1].trim();
+
+    const eMatch = rawQuery.match(/EMPLOYEE:\s*([a-zA-Z0-9@._-]+)/i);
+    if (eMatch && eMatch[1]) employee = eMatch[1].trim();
+
+    return { project, employee };
+  };
+
   // Helper for intelligent local tool execution (used if no API key or when Groq is rate-limited)
   const executeIntelligentLocalFallback = async () => {
+    // 1. MUTATIVE AUTOMATION ACTIONS (Highest priority)
+    const isAccessMutation =
+      lowerQuery.includes('give full access') ||
+      lowerQuery.includes('give limited access') ||
+      lowerQuery.includes('grant access') ||
+      lowerQuery.includes('give access') ||
+      lowerQuery.includes('change access') ||
+      lowerQuery.includes('set access') ||
+      lowerQuery.includes('update access') ||
+      lowerQuery.includes('revoke access') ||
+      lowerQuery.includes('remove access') ||
+      (lowerQuery.includes('full access') && (lowerQuery.includes('user') || lowerQuery.includes('project') || lowerQuery.includes('this')));
+
+    if (isAccessMutation) {
+      const { project, employee } = parseContextEntities(query);
+
+      let targetProject = project;
+      let targetEmployee = employee;
+
+      // Extract access level
+      let accessLevel: 'full' | 'limited' | 'none' = 'full';
+      if (lowerQuery.includes('none') || lowerQuery.includes('revoke') || lowerQuery.includes('remove')) {
+        accessLevel = 'none';
+      } else if (lowerQuery.includes('limited')) {
+        accessLevel = 'limited';
+      } else {
+        accessLevel = 'full';
+      }
+
+      if (targetEmployee && targetProject) {
+        const updateTool = tools.find(t => t.name === 'update_project_access_level')!;
+        const resultStr = await updateTool.invoke({
+          employeeIdentifier: targetEmployee,
+          projectNameOrId: targetProject,
+          accessLevel,
+        });
+        const parsed = JSON.parse(resultStr);
+
+        sendSSE(res, 'thinking', { stepTitle: 'Applying project access permissions...' });
+        await completeAIResponse(`✅ **Project Access Updated**\n\n${parsed.message || `Successfully granted \`${accessLevel.toUpperCase()}\` access to **${targetEmployee}** for project **${targetProject}**.`}`);
+        return;
+      }
+    }
+
     // Specific employee lookup in fallback mode
     if (lowerQuery.includes('who is') || lowerQuery.includes('detail of') || lowerQuery.includes('details of') || lowerQuery.includes('access of')) {
       const words = query.split(/\s+/);
@@ -1617,6 +1791,7 @@ export const processAIQuery = async (
       const messages: BaseMessage[] = [
         new SystemMessage(
           'You are DeployHub AI, an expert cloud infrastructure, DevOps, and deployment management assistant for DeployHub.\n\n' +
+          (targetedRagBlock ? `${targetedRagBlock}\n\n` : '') +
           'STRICT DOMAIN & ACCURACY GUARDRAILS:\n' +
           '1. DOMAIN RESTRAINT: You ONLY answer questions related to DeployHub, cloud infrastructure, Docker containers, project deployments, build/runtime logs, CI/CD, and organization team/employee management.\n' +
           '2. ZERO HALLUCINATIONS & NO FAKE DATA: NEVER invent, fabricate, hallucinate, or provide fictional sample data (such as "Project 1", "John", "Jane", "Alice", "Bob", etc.). You must ALWAYS use tool output data. If the database or tool returns no projects, deployments, or members, state truthfully and clearly that no records exist in the organization rather than generating mock/fictional data.\n' +
@@ -1635,10 +1810,13 @@ export const processAIQuery = async (
           '   - For Docker host container health -> invoke `get_container_health`.\n' +
           '   - For semantic search across documentation & build logs -> invoke `search_vector_knowledge`.\n' +
           '   - Only invoke `get_project_details` when the user explicitly names a single specific project to inspect.\n' +
-          '5. AUTOMATION ACTIONS (MUTATIVE TASKS):\n' +
-          '   - When the user asks to change, grant, or revoke project access for an employee (e.g. "change anshZIG access to full on demo", "give developer X limited access to project Y", "remove user Z access from project A"), invoke `update_project_access_level`.\n' +
+          '5. AUTOMATION ACTIONS & CONTEXT PARSING (HIGHEST PRIORITY):\n' +
+          '   - When the user query includes `[Selected Context: ...]` (e.g. `[Selected Context: PROJECT: two [RUNNING], EMPLOYEE: anshZIG [LIMITED]]`) or refers to "this user", "this project", "them", "it":\n' +
+          '     1. Extract the employee username (e.g. "anshZIG") and project name (e.g. "two") from the context or query.\n' +
+          '     2. If the user asks to change, grant, give, or revoke access (e.g. "give full access to this user for this project", "give full access to anshZIG on two", "change access level to full"), YOU MUST IMMEDIATELY INVOKE `update_project_access_level` with { employeeIdentifier: "anshZIG", projectNameOrId: "two", accessLevel: "full" }.\n' +
+          '     3. DO NOT just return the projects table (`get_user_deployments`) when the user asks to change or grant access! You MUST execute the mutative tool `update_project_access_level`.\n' +
           '   - When the user asks to change an employee\'s organization-wide default access (e.g. "make anshZIG full access in organization"), invoke `update_employee_org_access`.\n' +
-          '   - When the user asks to restart a project container (e.g. "restart container for project demo"), invoke `restart_project_container`.\n' +
+          '   - When the user asks to restart a project container (e.g. "restart container for project demo", "restart this project"), invoke `restart_project_container`.\n' +
           '   - Always report the outcome clearly confirming what changes were made.\n' +
           '6. OFF-TOPIC REFUSAL: If the user asks about unrelated topics (e.g. cooking recipes, creative storytelling, general trivia, medical/legal advice, unrelated non-DevOps topics), politely decline with this friendly response:\n' +
           '   "I am specialized in DeployHub cloud infrastructure, deployments, Docker telemetry, and organization management. How can I help with your projects or team today?"\n' +
